@@ -85,6 +85,7 @@ def doc_classification_crossvalidation():
             "f1_micro": f1micro,
             "mcc": mcc
         }
+
     register_metrics('mymetrics', mymetrics)
     metric = 'mymetrics'
 
@@ -156,7 +157,7 @@ def doc_classification_crossvalidation():
         # according to some metric and stop training when no improvement is happening for some iterations.
         # NOTE: Using a different save directory for each fold, allows us afterwards to use the
         # nfolds best models in an ensemble!
-        save_dir = Path(str(save_dir) + f"-{n_fold}")
+        save_dir = Path(f"{str(save_dir)}-{n_fold}")
         earlystopping = EarlyStopping(
             metric="f1_offense", mode="max",   # use the metric from our own metrics function instead of loss
             save_dir=save_dir,  # where to save the best model
@@ -235,12 +236,12 @@ def doc_classification_crossvalidation():
     # Now calculate the mean and stdev for each metric, also copy over the task name
     xval_metric = {}
     xval_metric["task_name"] = allresults[0][0].get("task_name", "UNKNOWN TASKNAME")
-    for name in xval_metric_lists_head0.keys():
+    for name in xval_metric_lists_head0:
         values = xval_metric_lists_head0[name]
         vmean = statistics.mean(values)
         vstdev = statistics.stdev(values)
-        xval_metric[name+"_mean"] = vmean
-        xval_metric[name+"_stdev"] = vstdev
+        xval_metric[f"{name}_mean"] = vmean
+        xval_metric[f"{name}_stdev"] = vstdev
 
     logger.info(f"XVAL Accuracy:   mean {xval_metric['acc_mean']} stdev {xval_metric['acc_stdev']}")
     logger.info(f"XVAL F1 MICRO:   mean {xval_metric['f1_micro_mean']} stdev {xval_metric['f1_micro_stdev']}")

@@ -25,11 +25,10 @@ for model_dir in MODELS_DIRS:
         models = [f for f in path.iterdir() if f.is_dir()]
         model_paths.extend(models)
 
-INFERENCERS = {}
-for idx, model_dir in enumerate(model_paths):
-    # refer to examples/inferencer_multiprocessing.py for using multiprocessing in the Inferencers.
-    INFERENCERS[idx + 1] = Inferencer.load(str(model_dir), num_processes=0)
-
+INFERENCERS = {
+    idx + 1: Inferencer.load(str(model_dir), num_processes=0)
+    for idx, model_dir in enumerate(model_paths)
+}
 app = Flask(__name__)
 CORS(app)
 api = Api(app, debug=True, validate=True, version="1.0", title="FARM NLP APIs")

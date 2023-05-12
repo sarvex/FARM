@@ -36,7 +36,7 @@ def get_dependency_links(filename):
     """
     with open(filename) as file:
         parsed_requirements = file.read().splitlines()
-    dependency_links = list()
+    dependency_links = []
     for line in parsed_requirements:
         line = line.strip()
         if line.startswith('--find-links'):
@@ -51,12 +51,11 @@ parsed_requirements = parse_requirements('requirements.txt')
 def versionfromfile(*filepath):
     infile = os.path.join(*filepath)
     with open(infile) as fp:
-        version_match = re.search(
+        if version_match := re.search(
             r"^__version__\s*=\s*['\"]([^'\"]*)['\"]", fp.read(), re.M
-        )
-        if version_match:
-            return version_match.group(1)
-        raise RuntimeError("Unable to find version string in {}.".format(infile))
+        ):
+            return version_match[1]
+        raise RuntimeError(f"Unable to find version string in {infile}.")
 
 
 here = os.path.abspath(os.path.dirname(__file__))

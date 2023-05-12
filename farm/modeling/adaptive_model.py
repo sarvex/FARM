@@ -47,11 +47,11 @@ class BaseAdaptiveModel:
         :param kwargs: arguments to pass for loading the model.
         :return: instance of a model
         """
-        if (Path(kwargs["load_dir"]) / "model.onnx").is_file():
-            model = cls.subclasses["ONNXAdaptiveModel"].load(**kwargs)
-        else:
-            model = cls.subclasses["AdaptiveModel"].load(**kwargs)
-        return model
+        return (
+            cls.subclasses["ONNXAdaptiveModel"].load(**kwargs)
+            if (Path(kwargs["load_dir"]) / "model.onnx").is_file()
+            else cls.subclasses["AdaptiveModel"].load(**kwargs)
+        )
 
     def logits_to_preds(self, logits, **kwargs):
         """
@@ -107,9 +107,8 @@ class BaseAdaptiveModel:
             elif type(preds) == dict and "predictions" in preds:
                 preds_final.append(preds)
 
-        # This case is triggered by Natural Questions
         else:
-            preds_final = [list() for _ in range(n_heads)]
+            preds_final = [[] for _ in range(n_heads)]
             preds = kwargs.get("preds")
             if preds is not None:
                 preds_for_heads = stack(preds)
@@ -118,9 +117,9 @@ class BaseAdaptiveModel:
             else:
                 preds_for_heads = [None] * n_heads
                 logits_for_heads = logits
-            preds_final = [list() for _ in range(n_heads)]
+            preds_final = [[] for _ in range(n_heads)]
 
-            if not "samples" in kwargs:
+            if "samples" not in kwargs:
                 samples = [s for b in kwargs["baskets"] for s in b.samples]
                 kwargs["samples"] = samples
 
@@ -128,9 +127,9 @@ class BaseAdaptiveModel:
                 preds = head.formatted_preds(logits=logits_for_head, preds=preds_for_head, **kwargs)
                 preds_final[i].append(preds)
 
-            # Look for a merge() function amongst the heads and if a single one exists, apply it to preds_final
-            merge_fn = pick_single_fn(self.prediction_heads, "merge_formatted_preds")
-            if merge_fn:
+            if merge_fn := pick_single_fn(
+                self.prediction_heads, "merge_formatted_preds"
+            ):
                 preds_final = merge_fn(preds_final)
 
         return preds_final
@@ -163,12 +162,7 @@ class BaseAdaptiveModel:
                 raise Exception(f"The task \'{head.task_name}\' is missing a valid set of labels")
             label_list = tasks[head.task_name]["label_list"]
             head.label_list = label_list
-            if "RegressionHead" in str(type(head)):
-                # This needs to be explicitly set because the regression label_list is being hijacked to store
-                # the scaling factor and the mean
-                num_labels = 1
-            else:
-                num_labels = len(label_list)
+            num_labels = 1 if "RegressionHead" in str(type(head)) else len(label_list)
             head.metric = tasks[head.task_name]["metric"]
 
     @classmethod
@@ -384,10 +378,9 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         :return loss: torch.tensor that is the per sample loss (len: batch_size)
         """
         all_losses = self.logits_to_loss_per_head(logits, **kwargs)
-        # This aggregates the loss per sample across multiple prediction heads
-        # Default is sum(), but you can configure any fn that takes [Tensor, Tensor ...] and returns [Tensor]
-        loss = self.loss_aggregation_fn(all_losses, global_step=global_step, batch=kwargs)
-        return loss
+        return self.loss_aggregation_fn(
+            all_losses, global_step=global_step, batch=kwargs
+        )
 
     def prepare_labels(self, **kwargs):
         """
@@ -423,18 +416,16 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         if len(self.prediction_heads) > 0:
             for head, lm_out in zip(self.prediction_heads, self.lm_output_types):
                 # Choose relevant vectors from LM as output and perform dropout
-                if lm_out == "per_token":
+                if (
+                    lm_out == "per_token"
+                    or lm_out not in ["per_sequence", "per_sequence_continuous"]
+                    and (lm_out == "per_token_squad")
+                ):
                     output = self.dropout(sequence_output)
-                elif lm_out == "per_sequence" or lm_out == "per_sequence_continuous":
+                elif lm_out in ["per_sequence", "per_sequence_continuous"]:
                     output = self.dropout(pooled_output)
-                elif (
-                    lm_out == "per_token_squad"
-                ):  # we need a per_token_squad because of variable metric computation later on...
-                    output = self.dropout(sequence_output)
                 else:
-                    raise ValueError(
-                        "Unknown extraction strategy from language model: {}".format(lm_out)
-                    )
+                    raise ValueError(f"Unknown extraction strategy from language model: {lm_out}")
 
                 # Do the actual forward pass of a single head
                 all_logits.append(head(output))
@@ -584,9 +575,9 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
             pipeline_name=task_type_to_pipeline_map[task_type],
             framework="pt",
             model=model_name,
-            output=output_path/"model.onnx",
+            output=output_path / "model.onnx",
             opset=opset_version,
-            use_external_format=True if language_model_class == "XLMRoberta" else False
+            use_external_format=language_model_class == "XLMRoberta",
         )
 
         # save processor & model config files that are needed when loading the model with the FARM Inferencer

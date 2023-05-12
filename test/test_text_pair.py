@@ -195,7 +195,7 @@ def test_segment_ids(caplog=None):
 
     dicts = processor.file_to_dicts(file="samples/text_pair/sample.tsv")
     dataset, tensornames, _, baskets = processor.dataset_from_dicts(dicts=dicts,return_baskets=True, debug=True)
-    assert set(baskets[0].samples[0].features[0]["segment_ids"]) == set([0,1])
+    assert set(baskets[0].samples[0].features[0]["segment_ids"]) == {0, 1}
     assert tokenizer.sep_token in baskets[0].samples[0].tokenized["tokens"]
 
 

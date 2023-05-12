@@ -128,26 +128,25 @@ class QACandidate:
         """
         if self.offset_answer_start == 0 and self.offset_answer_end == 0:
             return "", 0, 0
-        else:
-            # If the extracted answer is longer than the context_window_size,
-            # we will increase the context_window_size
-            len_ans = self.offset_answer_end - self.offset_answer_start
-            context_window_size = max(context_window_size, len_ans + 1)
+        # If the extracted answer is longer than the context_window_size,
+        # we will increase the context_window_size
+        len_ans = self.offset_answer_end - self.offset_answer_start
+        context_window_size = max(context_window_size, len_ans + 1)
 
-            len_text = len(clear_text)
-            midpoint = int(len_ans / 2) + self.offset_answer_start
-            half_window = int(context_window_size / 2)
-            window_start_ch = midpoint - half_window
-            window_end_ch = midpoint + half_window
+        len_text = len(clear_text)
+        midpoint = int(len_ans / 2) + self.offset_answer_start
+        half_window = int(context_window_size / 2)
+        window_start_ch = midpoint - half_window
+        window_end_ch = midpoint + half_window
 
-            # if we have part of the context window overlapping the start or end of the passage,
-            # we'll trim it and use the additional chars on the other side of the answer
-            overhang_start = max(0, -window_start_ch)
-            overhang_end = max(0, window_end_ch - len_text)
-            window_start_ch -= overhang_end
-            window_start_ch = max(0, window_start_ch)
-            window_end_ch += overhang_start
-            window_end_ch = min(len_text, window_end_ch)
+        # if we have part of the context window overlapping the start or end of the passage,
+        # we'll trim it and use the additional chars on the other side of the answer
+        overhang_start = max(0, -window_start_ch)
+        overhang_end = max(0, window_end_ch - len_text)
+        window_start_ch -= overhang_end
+        window_start_ch = max(0, window_start_ch)
+        window_end_ch += overhang_start
+        window_end_ch = min(len_text, window_end_ch)
         window_str = clear_text[window_start_ch: window_end_ch]
         return window_str, window_start_ch, window_end_ch
 
@@ -184,11 +183,7 @@ class QACandidate:
 
         start_ch = int(token_offsets[start_t])
         # i.e. pointing at the END of the last token
-        if end_t == n_tokens:
-            end_ch = len(clear_text)
-        else:
-            end_ch = token_offsets[end_t]
-
+        end_ch = len(clear_text) if end_t == n_tokens else token_offsets[end_t]
         final_text = clear_text[start_ch: end_ch]
 
         # if the final_text is more than whitespaces we trim it otherwise return a no_answer
@@ -211,7 +206,7 @@ class QACandidate:
         :param predicted_class: The predicted class e.g. "yes", "no", "no_answer", "span"
         """
 
-        if predicted_class in ["yes", "no"] and self.answer != "no_answer":
+        if predicted_class in {"yes", "no"} and self.answer != "no_answer":
             self.answer_support = self.answer
             self.answer = predicted_class
             self.answer_type = predicted_class

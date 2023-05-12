@@ -4,6 +4,7 @@ This is done by running the Inferencer twice: once with ph enabled and once with
 The Inferencer contains a Benchmarker object which measures the time taken by preprocessing and model processing.
 """
 
+
 from farm.infer import Inferencer
 from pprint import pformat
 import pandas as pd
@@ -21,7 +22,7 @@ questions_file = "samples/question_answering_questions.txt"
 num_processes = 1
 passages_per_char = 2400 / 1000000      # numerator is number of passages when 1mill chars paired with one of the questions, msl 384, doc stride 128
 # date_str = date.today().strftime("%d_%m_%Y")
-output_file = f"results_per_component.csv"
+output_file = "results_per_component.csv"
 
 params = {
     "modelname": ["deepset/bert-base-cased-squad2", "deepset/minilm-uncased-squad2", "deepset/roberta-base-squad2", "deepset/bert-large-uncased-whole-word-masking-squad2", "deepset/xlm-roberta-large-squad2"],
@@ -165,8 +166,7 @@ def prepare_dict(sample_file, q, document_size):
             data = json.load(f)
             dicts = []
             for d in data["data"]:
-                for p in d["paragraphs"]:
-                    dicts.append(p)
+                dicts.extend(iter(d["paragraphs"]))
     return dicts
 
 

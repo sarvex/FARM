@@ -42,17 +42,17 @@ def text_pair_classification():
     data_dir = Path("../data/msmarco_passage")
     predictions_raw_filename = "predictions_raw.txt"
     predictions_filename = "predictions.txt"
-    train_source_filename = "triples.train.1m.tsv"
     qrels_filename = "qrels.dev.tsv"
-    queries_filename = "queries.dev.tsv"
-    passages_filename = "collection.tsv"
-    top1000_filename = "top1000.dev"
-
     # 0. Preprocess and save MSMarco data in a format that can be ingested by FARM models. Only needs to be done once!
     # The final format is a tsv file with 3 columns (text, text_b and label)
     if generate_data:
+        train_source_filename = "triples.train.1m.tsv"
         reformat_msmarco_train(data_dir / train_source_filename,
                                data_dir / train_filename)
+        queries_filename = "queries.dev.tsv"
+        passages_filename = "collection.tsv"
+        top1000_filename = "top1000.dev"
+
         reformat_msmarco_dev(data_dir / queries_filename,
                              data_dir / passages_filename,
                              data_dir / qrels_filename,

@@ -121,9 +121,7 @@ class Tokenizer:
         elif tokenizer_class == "EmbeddingTokenizer":
             if use_fast:
                 logger.error('EmbeddingTokenizerFast is not supported! Using EmbeddingTokenizer instead.')
-                ret = EmbeddingTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
-            else:
-                ret = EmbeddingTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
+            ret = EmbeddingTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif "CamembertTokenizer" in tokenizer_class:
             if use_fast:
                 ret = CamembertTokenizerFast.from_pretrained(pretrained_model_name_or_path, **kwargs)
@@ -157,32 +155,26 @@ class Tokenizer:
         except OSError:
             # FARM model (no 'config.json' file)
             try:
-                config = AutoConfig.from_pretrained(pretrained_model_name_or_path + "/language_model_config.json")
+                config = AutoConfig.from_pretrained(
+                    f"{pretrained_model_name_or_path}/language_model_config.json"
+                )
             except Exception as e:
                 logger.warning("No config file found. Trying to infer Tokenizer type from model name")
-                tokenizer_class = Tokenizer._infer_tokenizer_class_from_string(pretrained_model_name_or_path)
-                return tokenizer_class
-
+                return Tokenizer._infer_tokenizer_class_from_string(
+                    pretrained_model_name_or_path
+                )
         model_type = config.model_type
 
-        if model_type == "xlm-roberta":
-            tokenizer_class = "XLMRobertaTokenizer"
-        elif model_type == "roberta":
-            if "mlm" in pretrained_model_name_or_path.lower():
-                raise NotImplementedError("MLM part of codebert is currently not supported in FARM")
-            tokenizer_class = "RobertaTokenizer"
-        elif model_type == "camembert":
-            tokenizer_class = "CamembertTokenizer"
-        elif model_type == "albert":
+        if model_type == "albert":
             tokenizer_class = "AlbertTokenizer"
-        elif model_type == "distilbert":
-            tokenizer_class = "DistilBertTokenizer"
         elif model_type == "bert":
             tokenizer_class = "BertTokenizer"
-        elif model_type == "xlnet":
-            tokenizer_class = "XLNetTokenizer"
-        elif model_type == "electra":
-            tokenizer_class = "ElectraTokenizer"
+        elif model_type == "big_bird":
+            tokenizer_class = "BigBirdTokenizer"
+        elif model_type == "camembert":
+            tokenizer_class = "CamembertTokenizer"
+        elif model_type == "distilbert":
+            tokenizer_class = "DistilBertTokenizer"
         elif model_type == "dpr":
             if config.architectures[0] == "DPRQuestionEncoder":
                 tokenizer_class = "DPRQuestionEncoderTokenizer"
@@ -190,8 +182,16 @@ class Tokenizer:
                 tokenizer_class = "DPRContextEncoderTokenizer"
             elif config.architectures[0] == "DPRReader":
                 raise NotImplementedError("DPRReader models are currently not supported.")
-        elif model_type == "big_bird":
-            tokenizer_class = "BigBirdTokenizer"
+        elif model_type == "electra":
+            tokenizer_class = "ElectraTokenizer"
+        elif model_type == "roberta":
+            if "mlm" in pretrained_model_name_or_path.lower():
+                raise NotImplementedError("MLM part of codebert is currently not supported in FARM")
+            tokenizer_class = "RobertaTokenizer"
+        elif model_type == "xlm-roberta":
+            tokenizer_class = "XLMRobertaTokenizer"
+        elif model_type == "xlnet":
+            tokenizer_class = "XLNetTokenizer"
         else:
             # Fall back to inferring type from model name
             logger.warning("Could not infer Tokenizer type from config. Trying to infer "
@@ -282,7 +282,7 @@ class EmbeddingTokenizer(PreTrainedTokenizer):
         )
 
         if not os.path.isfile(vocab_file):
-            raise ValueError("Can't find a vocabulary file at path '{}'.".format(vocab_file))
+            raise ValueError(f"Can't find a vocabulary file at path '{vocab_file}'.")
         self.vocab = load_vocab(vocab_file)
         self.unk_tok_idx = self.vocab[unk_token]
         self.ids_to_tokens = collections.OrderedDict([(ids, tok) for tok, ids in self.vocab.items()])
@@ -318,8 +318,7 @@ class EmbeddingTokenizer(PreTrainedTokenizer):
                 f"list ({', '.join(EMBEDDING_VOCAB_FILES_MAP['vocab_file'].keys())}) nor as local folder ")
             raise NotImplementedError
 
-        tokenizer = cls(vocab_file=resolved_vocab_file, **kwargs)
-        return tokenizer
+        return cls(vocab_file=resolved_vocab_file, **kwargs)
 
     def _tokenize(self, text, **kwargs):
         if self.do_lower_case:
@@ -339,8 +338,7 @@ class EmbeddingTokenizer(PreTrainedTokenizer):
             for token, token_index in sorted(self.vocab.items(), key=lambda kv: kv[1]):
                 if index != token_index:
                     logger.warning(
-                        "Saving vocabulary to {}: vocabulary indices are not consecutive."
-                        " Please check that the vocabulary is not corrupted!".format(vocab_file)
+                        f"Saving vocabulary to {vocab_file}: vocabulary indices are not consecutive. Please check that the vocabulary is not corrupted!"
                     )
                     index = token_index
                 writer.write(token + "\n")
@@ -403,13 +401,17 @@ def tokenize_with_metadata(text, tokenizer):
         #         start_of_word3.append(1)
         #         last_word = word_id
 
-        tokenized_dict = {"tokens": tokens2, "offsets": offsets2, "start_of_word": start_of_word2}
+        return {
+            "tokens": tokens2,
+            "offsets": offsets2,
+            "start_of_word": start_of_word2,
+        }
     else:
         # split text into "words" (here: simple whitespace tokenizer).
         words = text.split(" ")
         word_offsets = []
         cumulated = 0
-        for idx, word in enumerate(words):
+        for word in words:
             word_offsets.append(cumulated)
             cumulated += len(word) + 1  # 1 because we so far have whitespace tokenizer
 
@@ -418,9 +420,7 @@ def tokenize_with_metadata(text, tokenizer):
             words, word_offsets, tokenizer
         )
 
-        tokenized_dict = {"tokens": tokens, "offsets": offsets, "start_of_word": start_of_word}
-
-    return tokenized_dict
+        return {"tokens": tokens, "offsets": offsets, "start_of_word": start_of_word}
 
 
 def _words_to_tokens(words, word_offsets, tokenizer):
@@ -446,18 +446,16 @@ def _words_to_tokens(words, word_offsets, tokenizer):
         # Get (subword) tokens of single word.
 
         # empty / pure whitespace
-        if len(w) == 0:
-          continue
-        # For the first word of a text: we just call the regular tokenize function.
-        # For later words: we need to call it with add_prefix_space=True to get the same results with roberta / gpt2 tokenizer
-        # see discussion here. https://github.com/huggingface/transformers/issues/1196
-        elif len(tokens) == 0:
+        if (
+            len(w) != 0
+            and len(tokens) != 0
+            and type(tokenizer) == RobertaTokenizer
+        ):
+            tokens_word = tokenizer.tokenize(w, add_prefix_space=True)
+        elif len(w) != 0 and len(tokens) != 0 or len(w) != 0:
             tokens_word = tokenizer.tokenize(w)
         else:
-            if type(tokenizer) == RobertaTokenizer:
-                tokens_word = tokenizer.tokenize(w, add_prefix_space=True)
-            else:
-                tokens_word = tokenizer.tokenize(w)
+            continue
         # Sometimes the tokenizer returns no tokens
         if len(tokens_word) == 0:
             continue
@@ -514,7 +512,7 @@ def truncate_sequences(seq_a, seq_b, tokenizer, max_seq_len, truncation_strategy
     :return: truncated seq_a, truncated seq_b, overflowing tokens
 
     """
-    pair = bool(seq_b is not None)
+    pair = seq_b is not None
     len_a = len(seq_a)
     len_b = len(seq_b) if pair else 0
     num_special_tokens = tokenizer.num_special_tokens_to_add(pair=pair) if with_special_tokens else 0
@@ -583,13 +581,13 @@ def tokenize_batch_question_answering(pre_baskets, tokenizer, indices):
 
     # Extract relevant data
     tokenids_batch = tokenized_docs_batch["input_ids"]
-    offsets_batch = []
-    for o in tokenized_docs_batch["offset_mapping"]:
-        offsets_batch.append(np.array([x[0] for x in o]))
-    start_of_words_batch = []
-    for e in tokenized_docs_batch.encodings:
-        start_of_words_batch.append(_get_start_of_word_QA(e.words))
-
+    offsets_batch = [
+        np.array([x[0] for x in o])
+        for o in tokenized_docs_batch["offset_mapping"]
+    ]
+    start_of_words_batch = [
+        _get_start_of_word_QA(e.words) for e in tokenized_docs_batch.encodings
+    ]
     for i_doc, d in enumerate(pre_baskets):
         document_text = d["context"]
         # # Tokenize questions one by one
@@ -605,27 +603,27 @@ def tokenize_batch_question_answering(pre_baskets, tokenizer, indices):
             external_id = q["id"]
             # The internal_id depends on unique ids created for each process before forking
             internal_id = f"{indices[i_doc]}-{i_q}"
-            raw = {"document_text": document_text,
-                   "document_tokens": tokenids_batch[i_doc],
-                   "document_offsets": offsets_batch[i_doc],
-                   "document_start_of_word": start_of_words_batch[i_doc],
-                   "question_text": question_text,
-                   "question_tokens": question_tokenids,
-                   "question_offsets": question_offsets,
-                   "question_start_of_word": question_sow,
-                   "answers": q["answers"],
-                   }
-            # TODO add only during debug mode (need to create debug mode)
-            raw["document_tokens_strings"] = tokenized_docs_batch.encodings[i_doc].tokens
-            raw["question_tokens_strings"] = tokenized_q.encodings[0].tokens
-
+            raw = {
+                "document_text": document_text,
+                "document_tokens": tokenids_batch[i_doc],
+                "document_offsets": offsets_batch[i_doc],
+                "document_start_of_word": start_of_words_batch[i_doc],
+                "question_text": question_text,
+                "question_tokens": question_tokenids,
+                "question_offsets": question_offsets,
+                "question_start_of_word": question_sow,
+                "answers": q["answers"],
+                "document_tokens_strings": tokenized_docs_batch.encodings[
+                    i_doc
+                ].tokens,
+                "question_tokens_strings": tokenized_q.encodings[0].tokens,
+            }
             baskets.append(SampleBasket(raw=raw, id_internal=internal_id, id_external=external_id, samples=None))
     return baskets
 
 def _get_start_of_word_QA(word_ids):
     words = np.array(word_ids)
-    start_of_word_single = [1] + list(np.ediff1d(words))
-    return start_of_word_single
+    return [1] + list(np.ediff1d(words))
 
 #TODO standardize with other processors
 def _get_start_of_word(word_ids, special_token_mask=None):

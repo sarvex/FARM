@@ -25,8 +25,8 @@ def pytest_generate_tests(metafunc):
     """
     This method gets called for all test cases. Here, we set the arguments supplied in pytest_addoption().
     """
-    option_value = metafunc.config.option.use_gpu
     if 'use_gpu' in metafunc.fixturenames:
+        option_value = metafunc.config.option.use_gpu
         if option_value:
             metafunc.parametrize("use_gpu", [True], scope="session")
         else:
@@ -69,15 +69,14 @@ def adaptive_model_qa(use_gpu, num_processes):
 
 @pytest.fixture(scope="module")
 def bert_base_squad2(request):
-    model = QAInferencer.load(
-            "deepset/minilm-uncased-squad2",
-            task_type="question_answering",
-            batch_size=4,
-            num_processes=0,
-            multithreading_rust=False,
-            use_fast=True # TODO parametrize this to test slow as well
+    return QAInferencer.load(
+        "deepset/minilm-uncased-squad2",
+        task_type="question_answering",
+        batch_size=4,
+        num_processes=0,
+        multithreading_rust=False,
+        use_fast=True,  # TODO parametrize this to test slow as well
     )
-    return model
 
 # TODO add other model types (roberta, xlm-r, albert) here as well
 

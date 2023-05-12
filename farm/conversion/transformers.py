@@ -164,8 +164,9 @@ class Converter:
 
         # add more info to config
         adaptive_model.language_model.model.config.num_labels = prediction_head.num_labels
-        adaptive_model.language_model.model.config.id2label = {id: label for id, label in
-                                                               enumerate(prediction_head.label_list)}
+        adaptive_model.language_model.model.config.id2label = dict(
+            enumerate(prediction_head.label_list)
+        )
         adaptive_model.language_model.model.config.label2id = {label: id for id, label in
                                                                enumerate(prediction_head.label_list)}
         adaptive_model.language_model.model.config.finetuning_task = prediction_head.model_type
@@ -221,8 +222,9 @@ class Converter:
         adaptive_model.language_model.model.pooler = None
         # add more info to config
         adaptive_model.language_model.model.config.num_labels = prediction_head.num_labels
-        adaptive_model.language_model.model.config.id2label = {id: label for id, label in
-                                                               enumerate(prediction_head.label_list)}
+        adaptive_model.language_model.model.config.id2label = dict(
+            enumerate(prediction_head.label_list)
+        )
         adaptive_model.language_model.model.config.label2id = {label: id for id, label in
                                                                enumerate(prediction_head.label_list)}
         adaptive_model.language_model.model.config.finetuning_task = "token_classification"

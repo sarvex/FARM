@@ -122,7 +122,7 @@ class PredictionHead(nn.Module):
         prediction_head = cls.subclasses[config["name"]](**config)
         if load_weights:
             model_file = cls._get_model_file(config_file=config_file)
-            logger.info("Loading prediction head from {}".format(model_file))
+            logger.info(f"Loading prediction head from {model_file}")
             prediction_head.load_state_dict(torch.load(model_file, map_location=torch.device("cpu")), strict=strict)
         return prediction_head
 
@@ -168,25 +168,24 @@ class PredictionHead(nn.Module):
         of the prediction head. If there is a mismatch, the prediction head will be resized to fit."""
         if "feed_forward" not in dir(self):
             return
-        else:
-            old_dims = self.feed_forward.layer_dims
-            if input_dim == old_dims[0]:
-                return
-            new_dims = [input_dim] + old_dims[1:]
-            logger.info(f"Resizing input dimensions of {type(self).__name__} ({self.task_name}) "
-                  f"from {old_dims} to {new_dims} to match language model")
-            self.feed_forward = FeedForwardBlock(new_dims)
-            self.layer_dims[0] = input_dim
-            self.feed_forward.layer_dims[0] = input_dim
+        old_dims = self.feed_forward.layer_dims
+        if input_dim == old_dims[0]:
+            return
+        new_dims = [input_dim] + old_dims[1:]
+        logger.info(f"Resizing input dimensions of {type(self).__name__} ({self.task_name}) "
+              f"from {old_dims} to {new_dims} to match language model")
+        self.feed_forward = FeedForwardBlock(new_dims)
+        self.layer_dims[0] = input_dim
+        self.feed_forward.layer_dims[0] = input_dim
 
     @classmethod
     def _get_model_file(cls, config_file):
-        if "config.json" in str(config_file) and "prediction_head" in str(config_file):
-            head_num = int("".join([char for char in os.path.basename(config_file) if char.isdigit()]))
-            model_file = Path(os.path.dirname(config_file)) / f"prediction_head_{head_num}.bin"
-        else:
+        if "config.json" not in str(config_file) or "prediction_head" not in str(
+            config_file
+        ):
             raise ValueError(f"This doesn't seem to be a proper prediction_head config file: '{config_file}'")
-        return model_file
+        head_num = int("".join([char for char in os.path.basename(config_file) if char.isdigit()]))
+        return Path(os.path.dirname(config_file)) / f"prediction_head_{head_num}.bin"
 
     def _set_name(self, name):
         self.task_name = name
@@ -212,8 +211,7 @@ class RegressionHead(PredictionHead):
         self.generate_config()
 
     def forward(self, x):
-        logits = self.feed_forward(x)
-        return logits
+        return self.feed_forward(x)
 
     def logits_to_loss(self, logits, **kwargs):
         label_ids = kwargs.get(self.label_tensor_name)
@@ -288,8 +286,9 @@ class TextClassificationHead(PredictionHead):
         self.task_name = task_name #used for connecting with the right output of the processor
 
         if type(class_weights) is np.ndarray and class_weights.ndim != 1:
-            raise ValueError("When you pass `class_weights` as `np.ndarray` it must have 1 dimension! "
-                             "You provided {} dimensions.".format(class_weights.ndim))
+            raise ValueError(
+                f"When you pass `class_weights` as `np.ndarray` it must have 1 dimension! You provided {class_weights.ndim} dimensions."
+            )
 
         self.class_weights = class_weights
 
@@ -351,8 +350,7 @@ class TextClassificationHead(PredictionHead):
         return head
 
     def forward(self, X):
-        logits = self.feed_forward(X)
-        return logits
+        return self.feed_forward(X)
 
     def logits_to_loss(self, logits, **kwargs):
         label_ids = kwargs.get(self.label_tensor_name)
@@ -362,18 +360,14 @@ class TextClassificationHead(PredictionHead):
     def logits_to_probs(self, logits, return_class_probs, **kwargs):
         softmax = torch.nn.Softmax(dim=1)
         probs = softmax(logits)
-        if return_class_probs:
-            probs = probs
-        else:
-            probs = torch.max(probs, dim=1)[0]
+        probs = probs if return_class_probs else torch.max(probs, dim=1)[0]
         probs = probs.cpu().numpy()
         return probs
 
     def logits_to_preds(self, logits, **kwargs):
         logits = logits.cpu().numpy()
         pred_ids = logits.argmax(1)
-        preds = [self.label_list[int(x)] for x in pred_ids]
-        return preds
+        return [self.label_list[int(x)] for x in pred_ids]
 
     def prepare_labels(self, **kwargs):
         label_ids = kwargs.get(self.label_tensor_name)
@@ -408,8 +402,11 @@ class TextClassificationHead(PredictionHead):
         except KeyError:
             contexts = [sample.clear_text["question_text"] + " | " + sample.clear_text["passage_text"] for sample in samples]
 
-        contexts_b = [sample.clear_text["text_b"] for sample in samples if "text_b" in  sample.clear_text]
-        if len(contexts_b) != 0:
+        if contexts_b := [
+            sample.clear_text["text_b"]
+            for sample in samples
+            if "text_b" in sample.clear_text
+        ]:
             contexts = ["|".join([a, b]) for a,b in zip(contexts, contexts_b)]
 
         res = {"task": "text_classification",
@@ -492,14 +489,12 @@ class MultiLabelTextClassificationHead(PredictionHead):
         self.generate_config()
 
     def forward(self, X):
-        logits = self.feed_forward(X)
-        return logits
+        return self.feed_forward(X)
 
     def logits_to_loss(self, logits, **kwargs):
         label_ids = kwargs.get(self.label_tensor_name).to(dtype=torch.float)
         loss = self.loss_fct(logits.view(-1, self.num_labels), label_ids.view(-1, self.num_labels))
-        per_sample_loss = loss.mean(1)
-        return per_sample_loss
+        return loss.mean(1)
 
     def logits_to_probs(self, logits, **kwargs):
         sigmoid = torch.nn.Sigmoid()
@@ -511,19 +506,13 @@ class MultiLabelTextClassificationHead(PredictionHead):
         probs = self.logits_to_probs(logits)
         #TODO we could potentially move this to GPU to speed it up
         pred_ids = [np.where(row > self.pred_threshold)[0] for row in probs]
-        preds = []
-        for row in pred_ids:
-            preds.append([self.label_list[int(x)] for x in row])
-        return preds
+        return [[self.label_list[int(x)] for x in row] for row in pred_ids]
 
     def prepare_labels(self, **kwargs):
         label_ids = kwargs.get(self.label_tensor_name)
         label_ids = label_ids.cpu().numpy()
         label_ids = [np.where(row == 1)[0] for row in label_ids]
-        labels = []
-        for row in label_ids:
-            labels.append([self.label_list[int(x)] for x in row])
-        return labels
+        return [[self.label_list[int(x)] for x in row] for row in label_ids]
 
     def formatted_preds(self, logits, samples, **kwargs):
         preds = self.logits_to_preds(logits)
@@ -619,8 +608,7 @@ class TokenClassificationHead(PredictionHead):
 
 
     def forward(self, X):
-        logits = self.feed_forward(X)
-        return logits
+        return self.feed_forward(X)
 
     def logits_to_loss(
         self, logits, initial_mask, padding_mask=None, **kwargs
@@ -632,10 +620,7 @@ class TokenClassificationHead(PredictionHead):
         active_logits = logits.view(-1, self.num_labels)[active_loss]
         active_labels = label_ids.view(-1)[active_loss]
 
-        loss = self.loss_fct(
-            active_logits, active_labels
-        )  # loss is a 1 dimemnsional (active) token loss
-        return loss
+        return self.loss_fct(active_logits, active_labels)
 
     def logits_to_preds(self, logits, initial_mask, **kwargs):
         preds_word_all = []
@@ -687,11 +672,7 @@ class TokenClassificationHead(PredictionHead):
 
     @staticmethod
     def initial_token_only(seq, initial_mask):
-        ret = []
-        for init, s in zip(initial_mask, seq):
-            if init:
-                ret.append(s)
-        return ret
+        return [s for init, s in zip(initial_mask, seq) if init]
 
     def formatted_preds(self, logits, initial_mask, samples, return_class_probs=False, **kwargs):
         preds = self.logits_to_preds(logits, initial_mask)
@@ -846,8 +827,7 @@ class BertLMHead(PredictionHead):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
         hidden_states = self.LayerNorm(hidden_states)
-        lm_logits = self.decoder(hidden_states) + self.bias
-        return lm_logits
+        return self.decoder(hidden_states) + self.bias
 
     def logits_to_loss(self, logits, **kwargs):
         lm_label_ids = kwargs.get(self.label_tensor_name)
@@ -855,8 +835,7 @@ class BertLMHead(PredictionHead):
         masked_lm_loss = self.loss_fct(
             logits.view(-1, self.num_labels), lm_label_ids.view(-1)
         )
-        per_sample_loss = masked_lm_loss.view(-1, batch_size).mean(dim=0)
-        return per_sample_loss
+        return masked_lm_loss.view(-1, batch_size).mean(dim=0)
 
     def logits_to_preds(self, logits, **kwargs):
         lm_label_ids = kwargs.get(self.label_tensor_name).cpu().numpy()
@@ -864,22 +843,22 @@ class BertLMHead(PredictionHead):
         # apply mask to get rid of predictions for non-masked tokens
         lm_preds_ids[lm_label_ids == -1] = -1
         lm_preds_ids = lm_preds_ids.tolist()
-        preds = []
-        # we have a batch of sequences here. we need to convert for each token in each sequence.
-        for pred_ids_for_sequence in lm_preds_ids:
-            preds.append(
-                [self.label_list[int(x)] for x in pred_ids_for_sequence if int(x) != -1]
-            )
-        return preds
+        return [
+            [
+                self.label_list[int(x)]
+                for x in pred_ids_for_sequence
+                if int(x) != -1
+            ]
+            for pred_ids_for_sequence in lm_preds_ids
+        ]
 
     def prepare_labels(self, **kwargs):
         label_ids = kwargs.get(self.label_tensor_name)
         label_ids = label_ids.cpu().numpy().tolist()
-        labels = []
-        # we have a batch of sequences here. we need to convert for each token in each sequence.
-        for ids_for_sequence in label_ids:
-            labels.append([self.label_list[int(x)] for x in ids_for_sequence if int(x) != -1])
-        return labels
+        return [
+            [self.label_list[int(x)] for x in ids_for_sequence if int(x) != -1]
+            for ids_for_sequence in label_ids
+        ]
 
 
 class NextSentenceHead(TextClassificationHead):
@@ -945,8 +924,7 @@ class FeedForwardBlock(nn.Module):
         self.feed_forward = nn.Sequential(*layers_all)
 
     def forward(self, X):
-        logits = self.feed_forward(X)
-        return logits
+        return self.feed_forward(X)
 
 
 class QuestionAnsweringHead(PredictionHead):
@@ -999,7 +977,7 @@ class QuestionAnsweringHead(PredictionHead):
         :type use_confidence_scores_for_ranking: bool
         """
         super(QuestionAnsweringHead, self).__init__()
-        if len(kwargs) > 0:
+        if kwargs:
             logger.warning(f"Some unused parameters are passed to the QuestionAnsweringHead. "
                            f"Might not be a problem. Params: {json.dumps(kwargs)}")
         self.layer_dims = layer_dims
@@ -1013,12 +991,7 @@ class QuestionAnsweringHead(PredictionHead):
         self.no_ans_boost = no_ans_boost
         self.context_window_size = context_window_size
         self.n_best = n_best
-        if n_best_per_sample:
-            self.n_best_per_sample = n_best_per_sample
-        else:
-            # increasing n_best_per_sample to n_best ensures that there are n_best predictions in total
-            # otherwise this might not be the case for very short documents with only one "sample"
-            self.n_best_per_sample = n_best
+        self.n_best_per_sample = n_best_per_sample if n_best_per_sample else n_best
         self.duplicate_filtering = duplicate_filtering
         self.generate_config()
         self.temperature_for_confidence = nn.Parameter(torch.ones(1) * temperature_for_confidence)
@@ -1099,8 +1072,7 @@ class QuestionAnsweringHead(PredictionHead):
         loss_fct = CrossEntropyLoss(reduction="none")
         start_loss = loss_fct(start_logits, start_position)
         end_loss = loss_fct(end_logits, end_position)
-        per_sample_loss = (start_loss + end_loss) / 2
-        return per_sample_loss
+        return (start_loss + end_loss) / 2
 
 
     def temperature_scale(self, logits):
@@ -1236,31 +1208,30 @@ class QuestionAnsweringHead(PredictionHead):
         for candidate_idx in range(n_candidates):
             if len(top_candidates) == self.n_best_per_sample:
                 break
-            else:
-                # Retrieve candidate's indices
-                start_idx = sorted_candidates[candidate_idx, 0].item()
-                end_idx = sorted_candidates[candidate_idx, 1].item()
-                # Ignore no_answer scores which will be extracted later in this method
-                if start_idx == 0 and end_idx == 0:
-                    continue
-                if self.duplicate_filtering > -1 and (start_idx in start_idx_candidates or end_idx in end_idx_candidates):
-                    continue
-                score = start_end_matrix[start_idx, end_idx].item()
-                confidence = (start_matrix_softmax_start[start_idx].item() + end_matrix_softmax_end[end_idx].item())/2
-                top_candidates.append(QACandidate(offset_answer_start=start_idx,
-                                                  offset_answer_end=end_idx,
-                                                  score=score,
-                                                  answer_type="span",
-                                                  offset_unit="token",
-                                                  aggregation_level="passage",
-                                                  passage_id=sample_idx,
-                                                  confidence=confidence))
-                if self.duplicate_filtering > -1:
-                    for i in range(0, self.duplicate_filtering + 1):
-                        start_idx_candidates.add(start_idx + i)
-                        start_idx_candidates.add(start_idx - i)
-                        end_idx_candidates.add(end_idx + i)
-                        end_idx_candidates.add(end_idx - i)
+            # Retrieve candidate's indices
+            start_idx = sorted_candidates[candidate_idx, 0].item()
+            end_idx = sorted_candidates[candidate_idx, 1].item()
+            # Ignore no_answer scores which will be extracted later in this method
+            if start_idx == 0 and end_idx == 0:
+                continue
+            if self.duplicate_filtering > -1 and (start_idx in start_idx_candidates or end_idx in end_idx_candidates):
+                continue
+            score = start_end_matrix[start_idx, end_idx].item()
+            confidence = (start_matrix_softmax_start[start_idx].item() + end_matrix_softmax_end[end_idx].item())/2
+            top_candidates.append(QACandidate(offset_answer_start=start_idx,
+                                              offset_answer_end=end_idx,
+                                              score=score,
+                                              answer_type="span",
+                                              offset_unit="token",
+                                              aggregation_level="passage",
+                                              passage_id=sample_idx,
+                                              confidence=confidence))
+            if self.duplicate_filtering > -1:
+                for i in range(0, self.duplicate_filtering + 1):
+                    start_idx_candidates.add(start_idx + i)
+                    start_idx_candidates.add(start_idx - i)
+                    end_idx_candidates.add(end_idx + i)
+                    end_idx_candidates.add(end_idx - i)
 
         no_answer_score = start_end_matrix[0, 0].item()
         no_answer_confidence = (start_matrix_softmax_start[0].item() + end_matrix_softmax_end[0].item())/2
@@ -1304,10 +1275,7 @@ class QuestionAnsweringHead(PredictionHead):
         # Separate top_preds list from the no_ans_gap float.
         top_preds, no_ans_gaps = zip(*preds_d)
 
-        # Takes document level prediction spans and returns string predictions
-        doc_preds = self.to_qa_preds(top_preds, no_ans_gaps, baskets)
-
-        return doc_preds
+        return self.to_qa_preds(top_preds, no_ans_gaps, baskets)
 
     def to_qa_preds(self, top_preds, no_ans_gaps, baskets):
         """ Groups Span objects together in a QAPred object  """
@@ -1359,16 +1327,12 @@ class QuestionAnsweringHead(PredictionHead):
             qa_name = "qas"
         elif "question" in raw_dict:
             qa_name = "question"
-        if qa_name:
-            if type(raw_dict[qa_name][0]) == dict:
-                return raw_dict[qa_name][0]["question"]
+        if qa_name and type(raw_dict[qa_name][0]) == dict:
+            return raw_dict[qa_name][0]["question"]
         return try_get(question_names, raw_dict)
 
     def has_no_answer_idxs(self, sample_top_n):
-        for start, end, score in sample_top_n:
-            if start == 0 and end == 0:
-                return True
-        return False
+        return any(start == 0 and end == 0 for start, end, score in sample_top_n)
 
     def aggregate_preds(self, preds, passage_start_t, ids, seq_2_start_t=None, labels=None):
         """ Aggregate passage level predictions to create document level predictions.
@@ -1420,7 +1384,7 @@ class QuestionAnsweringHead(PredictionHead):
             all_basket_labels = {k: self.reduce_labels(v) for k, v in all_basket_labels.items()}
 
         # Return aggregated predictions in order as a list of lists
-        keys = [k for k in all_basket_preds]
+        keys = list(all_basket_preds)
         aggregated_preds = [all_basket_preds[k] for k in keys]
         if labels:
             labels = [all_basket_labels[k] for k in keys]
@@ -1431,11 +1395,13 @@ class QuestionAnsweringHead(PredictionHead):
     @staticmethod
     def reduce_labels(labels):
         """ Removes repeat answers. Represents a no answer label as (-1,-1)"""
-        positive_answers = [(start, end) for x in labels for start, end in x if not (start == -1 and end == -1)]
-        if not positive_answers:
-            return [(-1, -1)]
-        else:
-            return list(set(positive_answers))
+        positive_answers = [
+            (start, end)
+            for x in labels
+            for start, end in x
+            if start != -1 or end != -1
+        ]
+        return [(-1, -1)] if not positive_answers else list(set(positive_answers))
 
     def reduce_preds(self, preds):
         """ This function contains the logic for choosing the best answers from each passage. In the end, it
@@ -1450,7 +1416,7 @@ class QuestionAnsweringHead(PredictionHead):
         n_samples = len(preds)
 
         # Iterate over the top predictions for each sample
-        for sample_idx, sample_preds in enumerate(preds):
+        for sample_preds in preds:
             best_pred = sample_preds[0]
             best_pred_score = best_pred.score
             best_pred_confidence = best_pred.confidence
@@ -1467,25 +1433,33 @@ class QuestionAnsweringHead(PredictionHead):
         # Get all predictions in flattened list and sort by score
         pos_answers_flat = []
         for sample_idx, passage_preds in enumerate(preds):
-            for qa_candidate in passage_preds:
-                if not (qa_candidate.offset_answer_start == -1 and qa_candidate.offset_answer_end == -1):
-                    pos_answers_flat.append(QACandidate(offset_answer_start=qa_candidate.offset_answer_start,
-                                                        offset_answer_end=qa_candidate.offset_answer_end,
-                                                        score=qa_candidate.score,
-                                                        answer_type=qa_candidate.answer_type,
-                                                        offset_unit="token",
-                                                        aggregation_level="document",
-                                                        passage_id=str(sample_idx),
-                                                        n_passages_in_doc=n_samples,
-                                                        confidence=qa_candidate.confidence)
-                                            )
-
+            pos_answers_flat.extend(
+                QACandidate(
+                    offset_answer_start=qa_candidate.offset_answer_start,
+                    offset_answer_end=qa_candidate.offset_answer_end,
+                    score=qa_candidate.score,
+                    answer_type=qa_candidate.answer_type,
+                    offset_unit="token",
+                    aggregation_level="document",
+                    passage_id=str(sample_idx),
+                    n_passages_in_doc=n_samples,
+                    confidence=qa_candidate.confidence,
+                )
+                for qa_candidate in passage_preds
+                if qa_candidate.offset_answer_start != -1
+                or qa_candidate.offset_answer_end != -1
+            )
         # TODO add switch for more variation in answers, e.g. if varied_ans then never return overlapping answers
         pos_answer_dedup = self.deduplicate(pos_answers_flat)
 
         # This is how much no_ans_boost needs to change to turn a no_answer to a positive answer (or vice versa)
-        no_ans_gap = -min([nas - pbs for nas, pbs in zip(no_answer_scores, passage_best_score)])
-        no_ans_gap_confidence = -min([nas - pbs for nas, pbs in zip(no_answer_confidences, passage_best_confidence)])
+        no_ans_gap = -min(
+            nas - pbs for nas, pbs in zip(no_answer_scores, passage_best_score)
+        )
+        no_ans_gap_confidence = -min(
+            nas - pbs
+            for nas, pbs in zip(no_answer_confidences, passage_best_confidence)
+        )
 
         # "no answer" scores and positive answers scores are difficult to compare, because
         # + a positive answer score is related to a specific text qa_candidate
@@ -1530,9 +1504,9 @@ class QuestionAnsweringHead(PredictionHead):
         for qa_answer in preds:
             start = qa_answer.offset_answer_start
             end = qa_answer.offset_answer_end
-            score = qa_answer.score
-            confidence = qa_answer.confidence
             if start == -1 and end == -1:
+                score = qa_answer.score
+                confidence = qa_answer.confidence
                 return score, confidence
         raise Exception
 
@@ -1626,12 +1600,9 @@ def pick_single_fn(heads, fn_name):
     """ Iterates over heads and returns a static method called fn_name
     if and only if one head has a method of that name. If no heads have such a method, None is returned.
     If more than one head has such a method, an Exception is thrown"""
-    merge_fns = []
-    for h in heads:
-        merge_fns.append(getattr(h, fn_name, None))
-
+    merge_fns = [getattr(h, fn_name, None) for h in heads]
     merge_fns = [x for x in merge_fns if x is not None]
-    if len(merge_fns) == 0:
+    if not merge_fns:
         return None
     elif len(merge_fns) == 1:
         return merge_fns[0]
@@ -1682,9 +1653,7 @@ class TextSimilarityHead(PredictionHead):
 
         :return dot_product: similarity score of each query with each context/passage (dimension: n1xn2)
         """
-        # q_vector: n1 x D, ctx_vectors: n2 x D, result n1 x n2
-        dot_product = torch.matmul(query_vectors, torch.transpose(passage_vectors, 0, 1))
-        return dot_product
+        return torch.matmul(query_vectors, torch.transpose(passage_vectors, 0, 1))
 
     @classmethod
     def cosine_scores(cls, query_vectors, passage_vectors):
@@ -1757,8 +1726,7 @@ class TextSimilarityHead(PredictionHead):
             q_num = query_vectors.size(0)
             scores = scores.view(q_num, -1)
 
-        softmax_scores = nn.functional.log_softmax(scores, dim=1)
-        return softmax_scores
+        return nn.functional.log_softmax(scores, dim=1)
 
     def logits_to_loss(self, logits: Tuple[torch.Tensor, torch.Tensor], label_ids, **kwargs):
         """
@@ -1820,9 +1788,7 @@ class TextSimilarityHead(PredictionHead):
         softmax_scores = self._embeddings_to_scores(global_query_vectors, global_passage_vectors)
         targets = global_positive_idx_per_question.squeeze(-1).to(softmax_scores.device)
 
-        # Calculate loss
-        loss = self.loss_fct(softmax_scores, targets)
-        return loss
+        return self.loss_fct(softmax_scores, targets)
 
     def logits_to_preds(self, logits: Tuple[torch.Tensor, torch.Tensor], **kwargs):
         """

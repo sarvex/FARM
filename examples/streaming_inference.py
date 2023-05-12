@@ -42,7 +42,7 @@ def sample_dicts_generator():
                    "it one of the greatest games ever created.",
     }
 
-    for i in range(100000):
+    for _ in range(100000):
         yield qa_input
 
 

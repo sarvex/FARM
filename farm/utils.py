@@ -75,10 +75,7 @@ def initialize_device_settings(use_cuda, local_rank=-1, use_amp=None):
         n_gpu = 0
     elif local_rank == -1:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        if not torch.cuda.is_available():
-            n_gpu = 0
-        else:
-            n_gpu = torch.cuda.device_count()
+        n_gpu = 0 if not torch.cuda.is_available() else torch.cuda.device_count()
     else:
         device = torch.device("cuda", local_rank)
         torch.cuda.set_device(device)
@@ -87,7 +84,7 @@ def initialize_device_settings(use_cuda, local_rank=-1, use_amp=None):
         torch.distributed.init_process_group(backend="nccl")
     logger.info(f"Using device: {str(device).upper()} ")
     logger.info(f"Number of GPUs: {n_gpu}")
-    logger.info(f"Distributed Training: {bool(local_rank != -1)}")
+    logger.info(f"Distributed Training: {local_rank != -1}")
     logger.info(f"Automatic Mixed Precision: {use_amp}")
     return device, n_gpu
 
@@ -142,7 +139,7 @@ class StdoutLogger(BaseMLLogger):
 
     @classmethod
     def end_run(cls):
-        logger.info(f"**** End of Experiment **** ")
+        logger.info("**** End of Experiment **** ")
 
 
 class MLFlowLogger(BaseMLLogger):
@@ -169,7 +166,7 @@ class MLFlowLogger(BaseMLLogger):
             try:
                 mlflow.log_metrics(metrics, step=step)
             except ConnectionError:
-                logger.warning(f"ConnectionError in logging metrics to MLFlow.")
+                logger.warning("ConnectionError in logging metrics to MLFlow.")
             except Exception as e:
                 logger.warning(f"Failed to log metrics: {e}")
 
@@ -189,7 +186,7 @@ class MLFlowLogger(BaseMLLogger):
             try:
                 mlflow.log_artifacts(dir_path, artifact_path)
             except ConnectionError:
-                logger.warning(f"ConnectionError in logging artifacts to MLFlow")
+                logger.warning("ConnectionError in logging artifacts to MLFlow")
             except Exception as e:
                 logger.warning(f"Failed to log artifacts: {e}")
 
@@ -242,7 +239,7 @@ def convert_iob_to_simple_tags(preds, spans, probs):
     open_tag = False
     for pred, span, prob in zip(preds, spans, probs):
         # no entity
-        if not ("B-" in pred or "I-" in pred):
+        if "B-" not in pred and "I-" not in pred:
             if open_tag:
                 # end of one tag
                 merged_spans.append(cur_span)
@@ -251,7 +248,6 @@ def convert_iob_to_simple_tags(preds, spans, probs):
                 open_tag = False
             continue
 
-        # new span starting
         elif "B-" in pred:
             if open_tag:
                 # end of one tag
@@ -262,7 +258,7 @@ def convert_iob_to_simple_tags(preds, spans, probs):
             cur_span = span
             open_tag = True
 
-        elif "I-" in pred:
+        else:
             this_tag = pred.replace("I-", "")
             if open_tag and this_tag == cur_tag:
                 cur_span = (cur_span[0], span[1])
@@ -277,7 +273,7 @@ def convert_iob_to_simple_tags(preds, spans, probs):
         simple_tags.append(cur_tag)
         tag_probs.append(prob)
         open_tag = False
-    if contains_named_entity and len(simple_tags) == 0:
+    if contains_named_entity and not simple_tags:
         raise Exception("Predicted Named Entities lost when converting from IOB to simple tags. Please check the format"
                         "of the training data adheres to either adheres to IOB2 format or is converted when "
                         "read_ner_file() is called.")
@@ -307,7 +303,7 @@ def log_ascii_workers(n, logger):
     f_worker_lines = WORKER_F.split("\n")
     x_worker_lines = WORKER_X.split("\n")
     all_worker_lines = []
-    for i in range(n):
+    for _ in range(n):
         rand = np.random.randint(low=0,high=3)
         if(rand % 3 == 0):
             all_worker_lines.append(f_worker_lines)
@@ -328,8 +324,9 @@ def get_dict_checksum(payload_dict):
     """
     Get MD5 checksum for a dict.
     """
-    checksum = hashlib.md5(json.dumps(payload_dict, sort_keys=True).encode("utf-8")).hexdigest()
-    return checksum
+    return hashlib.md5(
+        json.dumps(payload_dict, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 class GracefulKiller:
@@ -346,8 +343,9 @@ def get_dict_checksum(payload_dict):
     """
     Get MD5 checksum for a dict.
     """
-    checksum = hashlib.md5(json.dumps(payload_dict, sort_keys=True).encode("utf-8")).hexdigest()
-    return checksum
+    return hashlib.md5(
+        json.dumps(payload_dict, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 def reformat_msmarco_train(filename, output_filename):
     """
@@ -357,11 +355,10 @@ def reformat_msmarco_train(filename, output_filename):
     df = pd.read_csv(filename, header=None, sep="\t")
     samples = []
     for i, row in tqdm(df.iterrows()):
-       query = row[0]
-       pos = row[1]
-       neg = row[2]
-       samples.append([query, pos, 1])
-       samples.append([query, neg, 0])
+        query = row[0]
+        pos = row[1]
+        neg = row[2]
+        samples.extend(([query, pos, 1], [query, neg, 0]))
     with open(output_filename, "w") as f:
         f.write("text\ttext_b\tlabel\n")
         for (query, passage, label) in samples:
@@ -376,7 +373,7 @@ def reformat_msmarco_dev(queries_filename, passages_filename, qrels_filename, to
     passages_file = open(passages_filename)
 
     # Generate a top1000 dict
-    top1000 = dict()
+    top1000 = {}
     for l in tqdm(top1000_file):
         qid, pid, _, _ = l.split("\t")
         if qid not in top1000:
@@ -384,7 +381,7 @@ def reformat_msmarco_dev(queries_filename, passages_filename, qrels_filename, to
         top1000[qid].append(pid)
 
     # Generate a qrels dict
-    qrels = dict()
+    qrels = {}
     for l in qrels_file:
         qid, _, pid, _ = l.split("\t")
         if qid not in qrels:
@@ -392,19 +389,19 @@ def reformat_msmarco_dev(queries_filename, passages_filename, qrels_filename, to
         qrels[qid].append(pid)
 
     # Generate a queries dict
-    queries = dict()
+    queries = {}
     for l in queries_file:
         qid, query = l.split("\t")
         queries[qid] = query[:-1]
 
     # Generate a passages dict
-    passages = dict()
+    passages = {}
     for l in tqdm(passages_file):
         pid, passage = l.split("\t")
         passages[pid] = passage[:-1]
 
     # Generate dict with all needed info
-    final = dict()
+    final = {}
     for qid in tqdm(top1000):
         if qid not in final:
             final[qid] = []
@@ -414,14 +411,13 @@ def reformat_msmarco_dev(queries_filename, passages_filename, qrels_filename, to
         for ct in curr_top1000:
             is_relevant = int(ct in curr_qrel)
             passage = passages[ct]
-            quad = list([query, ct, passage, is_relevant])
+            quad = [query, ct, passage, is_relevant]
             final[qid].append(quad)
 
     # Flatten the structure of final and convert to df
     records = []
     for k, v in tqdm(final.items()):
-        for x in v:
-            records.append([k] + x)
+        records.extend([k] + x for x in v)
     df = pd.DataFrame(records, columns=["qid", "text", "pid", "text_b", "label"])
     df.to_csv(output_filename, sep="\t", index=None)
     print(f"MSMarco train data saved at {output_filename}")
@@ -440,7 +436,7 @@ def write_msmarco_results(results, output_filename):
 
 def stack(list_of_lists):
     n_lists_final = len(list_of_lists[0])
-    ret = [list() for _ in range(n_lists_final)]
+    ret = [[] for _ in range(n_lists_final)]
     for l in list_of_lists:
         for i, x in enumerate(l):
             ret[i] += (x)
@@ -521,7 +517,8 @@ def all_gather_list(data, group=None, max_size=16384):
 
     if enc_size + SIZE_STORAGE_BYTES > max_size:
         raise ValueError(
-            'encoded data exceeds max_size, this can be fixed by increasing buffer size: {}'.format(enc_size))
+            f'encoded data exceeds max_size, this can be fixed by increasing buffer size: {enc_size}'
+        )
 
     rank = dist.get_rank()
     world_size = dist.get_world_size()
@@ -536,12 +533,13 @@ def all_gather_list(data, group=None, max_size=16384):
     buffer.zero_()
     cpu_buffer = all_gather_list._cpu_buffer
 
-    assert enc_size < 256 ** SIZE_STORAGE_BYTES, 'Encoded object size should be less than {} bytes'.format(
-        256 ** SIZE_STORAGE_BYTES)
+    assert (
+        enc_size < 256**SIZE_STORAGE_BYTES
+    ), f'Encoded object size should be less than {256**SIZE_STORAGE_BYTES} bytes'
 
     size_bytes = enc_size.to_bytes(SIZE_STORAGE_BYTES, byteorder='big')
 
-    cpu_buffer[0:SIZE_STORAGE_BYTES] = torch.ByteTensor(list(size_bytes))
+    cpu_buffer[:SIZE_STORAGE_BYTES] = torch.ByteTensor(list(size_bytes))
     cpu_buffer[SIZE_STORAGE_BYTES: enc_size + SIZE_STORAGE_BYTES] = torch.ByteTensor(list(enc))
 
     start = rank * max_size
@@ -554,7 +552,7 @@ def all_gather_list(data, group=None, max_size=16384):
         result = []
         for i in range(world_size):
             out_buffer = buffer[i * max_size: (i + 1) * max_size]
-            size = int.from_bytes(out_buffer[0:SIZE_STORAGE_BYTES], byteorder='big')
+            size = int.from_bytes(out_buffer[:SIZE_STORAGE_BYTES], byteorder='big')
             if size > 0:
                 result.append(pickle.loads(bytes(out_buffer[SIZE_STORAGE_BYTES: size + SIZE_STORAGE_BYTES].tolist())))
         return result

@@ -57,7 +57,11 @@ def convert_to_transformers():
     processor.tokenizer.save_pretrained(transformers_output_dir)
 
     # run predictions (using transformers)
-    nlp = pipeline('sentiment-analysis', model=str(transformers_output_dir), tokenizer=str(transformers_output_dir))
+    nlp = pipeline(
+        'sentiment-analysis',
+        model=transformers_output_dir,
+        tokenizer=transformers_output_dir,
+    )
     res = nlp("Was ein scheiß Nazi!")
     pprint.pprint(res)
 

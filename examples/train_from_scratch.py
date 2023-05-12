@@ -23,8 +23,7 @@ def parse_arguments():
                         type=int,
                         default=-1,
                         help="local_rank for distributed training on GPUs")
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 def train_from_scratch():

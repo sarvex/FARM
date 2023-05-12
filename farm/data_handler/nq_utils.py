@@ -222,16 +222,14 @@ def combine_vecs(question_vec, passage_vec, tokenizer, spec_tok_val=-1):
         spec_toks_mask = tokenizer.get_special_tokens_mask(token_ids_0=question_vec,
                                                            token_ids_1=passage_vec)
 
-    # If a value in vec corresponds to a special token, it will be replaced with spec_tok_val
-    combined = [v if not special_token else spec_tok_val for v, special_token in zip(vec, spec_toks_mask)]
-
-    return combined
+    return [
+        v if not special_token else spec_tok_val
+        for v, special_token in zip(vec, spec_toks_mask)
+    ]
 
 
 def answer_in_passage(start_idx, end_idx, passage_len):
-    if passage_len > start_idx >= 0 and passage_len > end_idx > 0:
-        return True
-    return False
+    return passage_len > start_idx >= 0 and passage_len > end_idx > 0
 
 def get_roberta_seq_2_start(input_ids):
     # This commit (https://github.com/huggingface/transformers/commit/dfe012ad9d6b6f0c9d30bc508b9f1e4c42280c07)from
@@ -426,12 +424,10 @@ def convert_qa_input_dict(infer_dict):
         questions = infer_dict["questions"]
         text = infer_dict["text"]
         uid = infer_dict.get("id", None)
-        qas = [{"question": q,
-                "id": uid,
-                "answers": [],
-                "answer_type": None} for i, q in enumerate(questions)]
-        converted = {"qas": qas,
-                     "context": text}
-        return converted
+        qas = [
+            {"question": q, "id": uid, "answers": [], "answer_type": None}
+            for q in questions
+        ]
+        return {"qas": qas, "context": text}
     except KeyError:
         raise Exception("Input does not have the expected format")

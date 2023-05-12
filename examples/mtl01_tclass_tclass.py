@@ -31,10 +31,10 @@ logging.basicConfig(level="INFO")
 logger = logging.getLogger(name="mtl01-train")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Devices available: {}".format(device))
+print(f"Devices available: {device}")
 
 
-LANG_MODEL = "bert-base-german-cased" 
+LANG_MODEL = "bert-base-german-cased"
 BATCH_SIZE = 32
 MAX_SEQ_LEN = 128
 EMBEDS_DROPOUT_PROB = 0.1
@@ -67,7 +67,7 @@ processor = TextClassificationProcessor(tokenizer=tokenizer,
                                         text_column_name="text",
                                         )
 prediction_heads = []
-if PREDICT == "coarse" or PREDICT == "both":
+if PREDICT in {"coarse", "both"}:
     processor.add_task(name="coarse",
                            task_type="classification",
                            label_list=LABEL_LIST_COARSE,
@@ -79,7 +79,7 @@ if PREDICT == "coarse" or PREDICT == "both":
         task_name="coarse",
         class_weights=None)
     prediction_heads.append(prediction_head_coarse)
-if PREDICT == "fine" or PREDICT == "both":
+if PREDICT in {"fine", "both"}:
     processor.add_task(name="fine",
                            task_type="classification",
                            label_list=LABEL_LIST_FINE,
@@ -101,18 +101,10 @@ language_model = LanguageModel.load(LANG_MODEL)
 
 
 def loss_round_robin(tensors, global_step, batch=None):
-    if global_step % 2:
-        return tensors[0]
-    else:
-        return tensors[1]
+    return tensors[0] if global_step % 2 else tensors[1]
 
 
-if PREDICT == "both" and DO_ROUND_ROBIN:
-    loss_fn = loss_round_robin
-else:
-    loss_fn = None
-
-
+loss_fn = loss_round_robin if PREDICT == "both" and DO_ROUND_ROBIN else None
 model = AdaptiveModel(
     language_model=language_model,
     prediction_heads=prediction_heads,
@@ -162,7 +154,7 @@ basic_texts = [
 ret = inferencer.inference_from_dicts(basic_texts)
 logger.info(f"Result of inference: {ret}")
 
-logger.info(f"Evaluating on training set...")
+logger.info("Evaluating on training set...")
 evaluator = Evaluator(
     data_loader=data_silo.get_data_loader("train"),
     tasks=processor.tasks,

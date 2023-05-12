@@ -94,10 +94,12 @@ class DataSilo:
             raise Exception("No task initialized. Try initializing the processor with a metric and a label list. "
                             "Alternatively you can add a task using Processor.add_task()")
 
-        if type(self.processor.tokenizer) == EmbeddingTokenizer:
-            if max_processes != 1:
-                logger.warning("Multiprocessing not efficient for WordEmbedding Tokenizers. Please set max_process \n"
-                            "argument in DataSilo to 1.")
+        if (
+            type(self.processor.tokenizer) == EmbeddingTokenizer
+            and max_processes != 1
+        ):
+            logger.warning("Multiprocessing not efficient for WordEmbedding Tokenizers. Please set max_process \n"
+                        "argument in DataSilo to 1.")
 
         loaded_from_cache = False
         if self.caching:  # Check if DataSets are present in cache
@@ -141,10 +143,12 @@ class DataSilo:
         if dicts is None:
             dicts = list(self.processor.file_to_dicts(filename))
             #shuffle list of dicts here if we later want to have a random dev set splitted from train set
-            if str(self.processor.train_filename) in str(filename):
-                if not self.processor.dev_filename:
-                    if self.processor.dev_split > 0.0:
-                        random.shuffle(dicts)
+            if (
+                str(self.processor.train_filename) in str(filename)
+                and not self.processor.dev_filename
+                and self.processor.dev_split > 0.0
+            ):
+                random.shuffle(dicts)
 
         num_dicts = len(dicts)
         multiprocessing_chunk_size, num_cpus_used = calc_chunksize(
@@ -178,7 +182,7 @@ class DataSilo:
             datasets = []
             problematic_ids_all = set()
 
-            desc = f"Preprocessing Dataset"
+            desc = "Preprocessing Dataset"
             if filename:
                 desc += f" {filename}"
             with tqdm(total=len(dicts), unit=' Dicts', desc=desc) as pbar:
@@ -206,8 +210,7 @@ class DataSilo:
         :return: None
         """
 
-        logger.info("\nLoading data into the data silo ..."
-                    "{}".format(TRACTOR_SMALL))
+        logger.info(f"\nLoading data into the data silo ...{TRACTOR_SMALL}")
         # train data
         logger.info("LOADING TRAIN DATA")
         logger.info("==================")
@@ -218,7 +221,7 @@ class DataSilo:
         elif self.processor.train_filename:
             # or from a file (default)
             train_file = self.processor.data_dir / self.processor.train_filename
-            logger.info("Loading train set from: {} ".format(train_file))
+            logger.info(f"Loading train set from: {train_file} ")
             self.data["train"], self.tensor_names = self._get_dataset(train_file)
         else:
             logger.info("No train set is being loaded")
@@ -235,7 +238,7 @@ class DataSilo:
         elif self.processor.dev_filename:
             # or from file (default)
             dev_file = self.processor.data_dir / self.processor.dev_filename
-            logger.info("Loading dev set from: {}".format(dev_file))
+            logger.info(f"Loading dev set from: {dev_file}")
             self.data["dev"], _ = self._get_dataset(dev_file)
         elif self.processor.dev_split > 0.0:
             # or split it apart from train set
@@ -256,7 +259,7 @@ class DataSilo:
         elif self.processor.test_filename:
             # or from file (default)
             test_file = self.processor.data_dir / self.processor.test_filename
-            logger.info("Loading test set from: {}".format(test_file))
+            logger.info(f"Loading test set from: {test_file}")
             if self.tensor_names:
                 self.data["test"], _ = self._get_dataset(test_file)
             else:
@@ -313,8 +316,7 @@ class DataSilo:
             "dev_split": self.processor.dev_split,
             "tasks": self.processor.tasks
         }
-        checksum = get_dict_checksum(payload_dict)
-        return checksum
+        return get_dict_checksum(payload_dict)
 
     def _save_dataset_to_cache(self):
         """
@@ -397,11 +399,11 @@ class DataSilo:
                 from sklearn.model_selection import StratifiedShuffleSplit
                 splitter = StratifiedShuffleSplit(n_splits=1, test_size=self.processor.dev_split)
                 train_idxs, dev_idxs = next(splitter.split(list(range(len(self.data["train"]))), Y))
-                train_idx_set = set([i for i in train_idxs])  # DEBUG
-                dev_idx_set = set([i for i in dev_idxs])  # DEBUG
+                train_idx_set = set(list(train_idxs))
+                dev_idx_set = set(list(dev_idxs))
                 logger.info(f"Original train size: {len(self.data['train'])}")
                 logger.info(f"Created stratified train/dev split: {len(train_idx_set)}/s{len(dev_idx_set)}")
-                assert len(train_idx_set.intersection(dev_idx_set)) == 0  # DEBUG
+                assert not train_idx_set.intersection(dev_idx_set)
                 # make this a single dataset concat dataset so it is compatible with what is expected in
                 # _calculate_statistics
                 new_train = ConcatTensorDataset([Subset(self.data["train"], train_idxs)])
@@ -411,16 +413,16 @@ class DataSilo:
                 from sklearn.model_selection import ShuffleSplit
                 splitter = ShuffleSplit(n_splits=1, test_size=self.processor.dev_split)
                 train_idxs, dev_idxs = next(splitter.split(list(range(len(self.data["train"])))))
-                train_idx_set = set([i for i in train_idxs])  # DEBUG
-                dev_idx_set = set([i for i in dev_idxs])  # DEBUG
-                assert len(train_idx_set.intersection(dev_idx_set)) == 0  # DEBUG
+                train_idx_set = set(list(train_idxs))
+                dev_idx_set = set(list(dev_idxs))
+                assert not train_idx_set.intersection(dev_idx_set)
                 logger.info(f"Created random train/dev split: {len(train_idx_set)}/{len(dev_idx_set)}")
                 new_train = ConcatTensorDataset([Subset(self.data["train"], train_idxs)])
                 self.data["dev"] = Subset(self.data["train"], dev_idxs)
                 self.data["train"] = new_train
             elif callable(self.processor.dev_stratification):
                 self.data["train"], self.data["dev"] = \
-                    self.processor.dev_stratification(self.data["train"], dev_split=self.processor.dev_split)
+                        self.processor.dev_stratification(self.data["train"], dev_split=self.processor.dev_split)
             else:
                 raise RuntimeError(f"Value for parameter dev_stratification not supported: {self.processor.dev_stratification}")
         else:
@@ -481,46 +483,47 @@ class DataSilo:
             elif "query_input_ids" in self.tensor_names and "passage_input_ids" in self.tensor_names:
                 clipped, ave_len, seq_lens, max_seq_len = self._calc_length_stats_biencoder()
             else:
-                logger.warning(f"Could not compute length statistics because 'input_ids' or 'query_input_ids' and 'passage_input_ids' are missing.")
+                logger.warning(
+                    "Could not compute length statistics because 'input_ids' or 'query_input_ids' and 'passage_input_ids' are missing."
+                )
                 clipped = -1
                 ave_len = -1
         else:
             self.counts["train"] = 0
 
-        if self.data["dev"]:
-            self.counts["dev"] = len(self.data["dev"])
-        else:
-            self.counts["dev"] = 0
-
-        if self.data["test"]:
-            self.counts["test"] = len(self.data["test"])
-        else:
-            self.counts["test"] = 0
-
-
-        logger.info("Examples in train: {}".format(self.counts["train"]))
-        logger.info("Examples in dev  : {}".format(self.counts["dev"]))
-        logger.info("Examples in test : {}".format(self.counts["test"]))
-        logger.info("Total examples   : {}".format(self.counts["train"]+self.counts["dev"]+self.counts["test"]))
+        self.counts["dev"] = len(self.data["dev"]) if self.data["dev"] else 0
+        self.counts["test"] = len(self.data["test"]) if self.data["test"] else 0
+        logger.info(f'Examples in train: {self.counts["train"]}')
+        logger.info(f'Examples in dev  : {self.counts["dev"]}')
+        logger.info(f'Examples in test : {self.counts["test"]}')
+        logger.info(
+            f'Total examples   : {self.counts["train"] + self.counts["dev"] + self.counts["test"]}'
+        )
         logger.info("")
-        if self.data["train"]:
-            if "input_ids" in self.tensor_names:
-                logger.info("Longest sequence length observed after clipping:     {}".format(max(seq_lens)))
-                logger.info("Average sequence length after clipping: {}".format(ave_len))
-                logger.info("Proportion clipped:      {}".format(clipped))
+        if "input_ids" in self.tensor_names:
+            if self.data["train"]:
+                logger.info(
+                    f"Longest sequence length observed after clipping:     {max(seq_lens)}"
+                )
+                logger.info(f"Average sequence length after clipping: {ave_len}")
+                logger.info(f"Proportion clipped:      {clipped}")
                 if clipped > 0.5:
-                    logger.info("[Farmer's Tip] {}% of your samples got cut down to {} tokens. "
-                                "Consider increasing max_seq_len. "
-                                "This will lead to higher memory consumption but is likely to "
-                                "improve your model performance".format(round(clipped * 100, 1), max_seq_len))
-            elif "query_input_ids" in self.tensor_names and "passage_input_ids" in self.tensor_names:
-                logger.info("Longest query length observed after clipping: {}   - for max_query_len: {}".format(max(seq_lens[0]),max_seq_len[0]))
-                logger.info("Average query length after clipping:          {}".format(ave_len[0]))
-                logger.info("Proportion queries clipped:                   {}".format(clipped[0]))
+                    logger.info(
+                        f"[Farmer's Tip] {round(clipped * 100, 1)}% of your samples got cut down to {max_seq_len} tokens. Consider increasing max_seq_len. This will lead to higher memory consumption but is likely to improve your model performance"
+                    )
+        elif "query_input_ids" in self.tensor_names and "passage_input_ids" in self.tensor_names:
+            if self.data["train"]:
+                logger.info(
+                    f"Longest query length observed after clipping: {max(seq_lens[0])}   - for max_query_len: {max_seq_len[0]}"
+                )
+                logger.info(f"Average query length after clipping:          {ave_len[0]}")
+                logger.info(f"Proportion queries clipped:                   {clipped[0]}")
                 logger.info("")
-                logger.info("Longest passage length observed after clipping: {}   - for max_passage_len: {}".format(max(seq_lens[1]),max_seq_len[1]))
-                logger.info("Average passage length after clipping:          {}".format(ave_len[1]))
-                logger.info("Proportion passages clipped:                    {}".format(clipped[1]))
+                logger.info(
+                    f"Longest passage length observed after clipping: {max(seq_lens[1])}   - for max_passage_len: {max_seq_len[1]}"
+                )
+                logger.info(f"Average passage length after clipping:          {ave_len[1]}")
+                logger.info(f"Proportion passages clipped:                    {clipped[1]}")
 
         MlLogger.log_params(
             {
@@ -698,10 +701,12 @@ class StreamingDataSilo:
             distributed = self.distributed
         )
 
-        data_loader = NamedDataLoader(
-            dataset=data_set, batch_size=1, num_workers=self.dataloader_workers, pin_memory=True
+        return NamedDataLoader(
+            dataset=data_set,
+            batch_size=1,
+            num_workers=self.dataloader_workers,
+            pin_memory=True,
         )
-        return data_loader
 
 
 class _StreamingDataSet(IterableDataset):
@@ -724,11 +729,7 @@ class _StreamingDataSet(IterableDataset):
         self.distributed = distributed
 
         # calculate or estimate number of samples so that the data loader can derive number of training steps
-        if filepath.is_file():
-            files = [filepath]
-        else:
-            files = [file for file in filepath.iterdir()]
-
+        files = [filepath] if filepath.is_file() else list(filepath.iterdir())
         if n_samples:
             self.n_samples = n_samples
         else:
@@ -748,12 +749,11 @@ class _StreamingDataSet(IterableDataset):
             self.world_size = torch.distributed.get_world_size()
 
     def __len__(self):
-        if self.distributed:
-            # only a heuristic as we don't necessarily split samples equally across ranks
-            len = self.n_samples // self.world_size
-        else:
-            len = self.n_samples
-        return len
+        return (
+            self.n_samples // self.world_size
+            if self.distributed
+            else self.n_samples
+        )
 
     def __iter__(self):
         #  With IterableDataset, the same __iter__ is copied over to the multiple workers of
@@ -901,26 +901,24 @@ class DataSiloForCrossVal(DataSilo):
         :type n_inner_splits: int
         """
         # check n_inner_splits param
-        if (n_inner_splits is not None) and (not n_inner_splits >= 2):
+        if n_inner_splits is not None and n_inner_splits < 2:
             raise ValueError("'n_inner_splits' must be at least 2!")
 
         if "question_answering" in datasilo.processor.tasks and n_inner_splits is None:
             return cls._make_question_answering(
                 datasilo, sets, n_splits, shuffle, random_state, n_neg_answers_per_question
             )
-        elif "question_answering" in datasilo.processor.tasks and n_inner_splits is not None:
+        elif "question_answering" in datasilo.processor.tasks:
             raise NotImplementedError()
         elif n_inner_splits is None:
             return cls._make(
                 datasilo, sets, n_splits, shuffle, random_state, stratification
             )
-        elif n_inner_splits is not None:
+        else:
             return cls._make_nested(
                 datasilo, sets, n_splits, shuffle, random_state, stratification,
                 n_inner_splits
             )
-        else:
-            raise RuntimeError("Cross validation can not be done under these conditions!")
 
 
     @classmethod
@@ -998,12 +996,9 @@ class DataSiloForCrossVal(DataSilo):
                         else:
                             neg_answer_idx.append(index)
                     # add random n_neg_answers_per_question samples to train set
-                    if len(neg_answer_idx) <= n_neg_answers_per_question:
-                        train_samples.extend([sample_list[idx] for idx in neg_answer_idx])
-                    else:
+                    if len(neg_answer_idx) > n_neg_answers_per_question:
                         neg_answer_idx = random.sample(neg_answer_idx, n_neg_answers_per_question)
-                        train_samples.extend([sample_list[idx] for idx in neg_answer_idx])
-
+                    train_samples.extend([sample_list[idx] for idx in neg_answer_idx])
             ds_train = train_samples
             ds_test = [sample for document in test_set for sample in document]
             silos.append(DataSiloForCrossVal(datasilo, ds_train, ds_dev, ds_test))
@@ -1229,7 +1224,7 @@ class DataSiloForHoldout(DataSilo):
         Y = None
         silos = []
         if callable(stratification):
-            for i in range(n_splits):
+            for _ in range(n_splits):
                 ds_train, ds_test = stratification(ds_all, train_split=train_split)
                 silos.append(DataSiloForHoldout(datasilo, ds_train, None, ds_test))
             return silos

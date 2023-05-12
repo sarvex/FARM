@@ -14,8 +14,7 @@ def squad_subsample():
         data = json.load(json_file)
 
     ss = data["data"][0]["paragraphs"][:1]
-    sample = {}
-    sample["data"] = [{"paragraphs": ss}]
+    sample = {"data": [{"paragraphs": ss}]}
     # just creating same train and dev files
     with open('samples/qa/dev-sample.json', 'w') as outfile:
         json.dump(sample, outfile)

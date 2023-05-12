@@ -24,8 +24,7 @@ logging.basicConfig(
 
 def load_experiments(file):
     args = read_config(file)
-    experiments = unnestConfig(args)
-    return experiments
+    return unnestConfig(args)
 
 
 def run_experiment(args):
@@ -42,7 +41,7 @@ def run_experiment(args):
     )
 
     validate_args(args)
-    distributed = bool(args.general.local_rank != -1)
+    distributed = args.general.local_rank != -1
 
     # Init device and distributed settings
     device, n_gpu = initialize_device_settings(
@@ -157,16 +156,14 @@ def get_adaptive_model(
     parsed_lm_output_types = lm_output_type.split(",")
     language_model = LanguageModel.load(model)
 
-    initialized_heads = []
-    for head_name in prediction_heads.split(","):
-        initialized_heads.append(
-            PredictionHead.create(
-                prediction_head_name=head_name,
-                layer_dims=layer_dims,
-                class_weights=class_weights,
-            )
+    initialized_heads = [
+        PredictionHead.create(
+            prediction_head_name=head_name,
+            layer_dims=layer_dims,
+            class_weights=class_weights,
         )
-
+        for head_name in prediction_heads.split(",")
+    ]
     model = AdaptiveModel(
         language_model=language_model,
         prediction_heads=initialized_heads,
@@ -183,9 +180,7 @@ def validate_args(args):
 
     if args.parameter.gradient_accumulation_steps < 1:
         raise ValueError(
-            "Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-                args.parameter.gradient_accumulation_steps
-            )
+            f"Invalid gradient_accumulation_steps parameter: {args.parameter.gradient_accumulation_steps}, should be >= 1"
         )
 
 

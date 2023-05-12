@@ -300,7 +300,7 @@ if __name__ == "__main__":
     benchmark_results.extend(test_evaluation())
     benchmark_results.extend(train_evaluation_single(seed=21))
 
-    output_file = f"results_accuracy.csv"
+    output_file = "results_accuracy.csv"
     df = pd.DataFrame.from_records(benchmark_results)
     df.to_csv(output_file)
     with open(output_file.replace(".csv", ".md"), "w") as f:

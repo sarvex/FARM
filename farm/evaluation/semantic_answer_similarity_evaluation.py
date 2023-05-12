@@ -74,16 +74,13 @@ def _extract_QA_result(result):
     text_labels = []
     for r in result:
         current_labels = []
-        current_preds = []
         if len(r.ground_truth_answer) == 0:
             current_labels.append("no_answer")
         else:
-            for a in r.ground_truth_answer:
-                current_labels.append(a["text"])
+            current_labels.extend(a["text"] for a in r.ground_truth_answer)
         text_labels.append(current_labels)
 
-        for p in r.prediction:
-            current_preds.append(p.answer)
+        current_preds = [p.answer for p in r.prediction]
         text_preds.append(current_preds)
 
     return text_preds, text_labels
@@ -97,11 +94,8 @@ def _add_debug_info(result,i,sims):
     # Exclude no answer labels from debug info
     if len(result[i].ground_truth_answer) == 0:
         return None
-    # Only add debug info if there is no overlap between predictions and labels
     elif top_n_accuracy(preds=current_preds, labels=current_labels) == 0:
-        current_info = {}
-        current_info["question"] = result[i].question
-        current_info["top1_sim"] = np.max(sims[0, :])
+        current_info = {"question": result[i].question, "top1_sim": np.max(sims[0, :])}
         current_info["top1_label"] = result[i].ground_truth_answer[np.argmax(sims[0, :])]["text"]
         current_info["top1_pred"] = result[i].prediction[0].answer
 

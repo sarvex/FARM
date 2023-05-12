@@ -96,21 +96,21 @@ def test_data_silo_for_cross_val1():
         )
 
     assert len(silos) == n_splits
-    for idx, silo in enumerate(silos):
+    for silo in silos:
         train_ds = silo.get_data_loader("train").dataset
         dev_ds = silo.get_data_loader("dev").dataset
         test_ds = silo.get_data_loader("test").dataset
         train_indices = train_ds.datasets[0].indices
         dev_indices = dev_ds.indices
-        train_idx_set = set([i for i in train_indices])
-        dev_idx_set = set([i for i in dev_indices])
+        train_idx_set = set(list(train_indices))
+        dev_idx_set = set(list(dev_indices))
         orig_train = train_ds.datasets[0].dataset
         orig_train_idx = orig_train.indices
         test_idx = test_ds.indices
-        orig_train_idx_set = set([i for i in orig_train_idx])
-        test_idx_set = set([i for i in test_idx])
-        assert len(orig_train_idx_set.intersection(test_idx_set)) == 0
-        assert len(train_idx_set.intersection(dev_idx_set)) == 0
+        orig_train_idx_set = set(list(orig_train_idx))
+        test_idx_set = set(list(test_idx))
+        assert not orig_train_idx_set.intersection(test_idx_set)
+        assert not train_idx_set.intersection(dev_idx_set)
     del tokenizer
     del processor
     del data_silo
@@ -139,21 +139,21 @@ def test_data_silo_for_holdout1():
         )
 
     assert len(silos) == n_splits
-    for idx, silo in enumerate(silos):
+    for silo in silos:
         train_ds = silo.get_data_loader("train").dataset
         dev_ds = silo.get_data_loader("dev").dataset
         test_ds = silo.get_data_loader("test").dataset
         train_indices = train_ds.datasets[0].indices
         dev_indices = dev_ds.indices
-        train_idx_set = set([i for i in train_indices])
-        dev_idx_set = set([i for i in dev_indices])
+        train_idx_set = set(list(train_indices))
+        dev_idx_set = set(list(dev_indices))
         orig_train = train_ds.datasets[0].dataset
         orig_train_idx = orig_train.indices
         test_idx = test_ds.indices
-        orig_train_idx_set = set([i for i in orig_train_idx])
-        test_idx_set = set([i for i in test_idx])
-        assert len(orig_train_idx_set.intersection(test_idx_set)) == 0
-        assert len(train_idx_set.intersection(dev_idx_set)) == 0
+        orig_train_idx_set = set(list(orig_train_idx))
+        test_idx_set = set(list(test_idx))
+        assert not orig_train_idx_set.intersection(test_idx_set)
+        assert not train_idx_set.intersection(dev_idx_set)
     del tokenizer
     del processor
     del data_silo

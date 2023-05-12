@@ -320,14 +320,11 @@ class Inferencer:
         :return:
         """
         self.process_pool = None
-        if num_processes == 0 or num_processes == 1:  # disable multiprocessing
+        if num_processes in [0, 1]:  # disable multiprocessing
             self.process_pool = None
         else:
             if num_processes is None:  # use all CPU cores
-                if mp.cpu_count() > 3:
-                    num_processes = mp.cpu_count() - 1
-                else:
-                    num_processes = mp.cpu_count()
+                num_processes = mp.cpu_count() - 1 if mp.cpu_count() > 3 else mp.cpu_count()
             self.process_pool = mp.Pool(processes=num_processes)
             logger.info(
                 f"Got ya {num_processes} parallel workers to do inference ..."
@@ -380,10 +377,7 @@ class Inferencer:
             multiprocessing_chunksize=multiprocessing_chunksize,
             streaming=streaming,
         )
-        if streaming:
-            return preds_all
-        else:
-            return list(preds_all)
+        return preds_all if streaming else list(preds_all)
 
     def inference_from_dicts(
         self, dicts, return_json=True, multiprocessing_chunksize=None, streaming=False
@@ -431,34 +425,31 @@ class Inferencer:
         if len(self.model.prediction_heads) > 0:
             aggregate_preds = hasattr(self.model.prediction_heads[0], "aggregate_preds")
 
-        if self.process_pool is None:  # multiprocessing disabled (helpful for debugging or using in web frameworks)
-            predictions = self._inference_without_multiprocessing(dicts, return_json, aggregate_preds)
-            return predictions
-        else:  # use multiprocessing for inference
-            # Calculate values of multiprocessing_chunksize and num_processes if not supplied in the parameters.
-            # The calculation of the values is based on whether streaming mode is enabled. This is only for speed
-            # optimization and do not impact the results of inference.
-            if streaming:
-                if multiprocessing_chunksize is None:
-                    logger.warning("Streaming mode is enabled for the Inferencer but multiprocessing_chunksize is not "
-                                   "supplied. Continuing with a default value of 20. Perform benchmarking on your data "
-                                   "to get the optimal chunksize.")
-                    multiprocessing_chunksize = 20
-            else:
-                if multiprocessing_chunksize is None:
-                    _chunk_size, _ = calc_chunksize(len(dicts))
-                    multiprocessing_chunksize = _chunk_size
-
-            predictions = self._inference_with_multiprocessing(
-                dicts, return_json, aggregate_preds, multiprocessing_chunksize,
+        if self.process_pool is None:
+            return self._inference_without_multiprocessing(
+                dicts, return_json, aggregate_preds
             )
-
-            self.processor.log_problematic(self.problematic_sample_ids)
-            # return a generator object if streaming is enabled, else, cast the generator to a list.
-            if not streaming and type(predictions) != list:
-                return list(predictions)
+        if multiprocessing_chunksize is None:
+            if streaming:
+                logger.warning("Streaming mode is enabled for the Inferencer but multiprocessing_chunksize is not "
+                               "supplied. Continuing with a default value of 20. Perform benchmarking on your data "
+                               "to get the optimal chunksize.")
+                multiprocessing_chunksize = 20
             else:
-                return predictions
+                _chunk_size, _ = calc_chunksize(len(dicts))
+                multiprocessing_chunksize = _chunk_size
+
+        predictions = self._inference_with_multiprocessing(
+            dicts, return_json, aggregate_preds, multiprocessing_chunksize,
+        )
+
+        self.processor.log_problematic(self.problematic_sample_ids)
+            # return a generator object if streaming is enabled, else, cast the generator to a list.
+        return (
+            list(predictions)
+            if not streaming and type(predictions) != list
+            else predictions
+        )
 
     def _inference_without_multiprocessing(self, dicts, return_json, aggregate_preds):
         """
@@ -577,7 +568,7 @@ class Inferencer:
             dataset=dataset, sampler=SequentialSampler(dataset), batch_size=self.batch_size, tensor_names=tensor_names
         )
         preds_all = []
-        for i, batch in enumerate(tqdm(data_loader, desc=f"Inferencing Samples", unit=" Batches", disable=self.disable_tqdm)):
+        for i, batch in enumerate(tqdm(data_loader, desc="Inferencing Samples", unit=" Batches", disable=self.disable_tqdm)):
             batch = {key: batch[key].to(self.device) for key in batch}
             batch_samples = samples[i * self.batch_size : (i + 1) * self.batch_size]
 
@@ -616,8 +607,7 @@ class Inferencer:
         # TODO so that preds of the right shape are passed in to formatted_preds
         unaggregated_preds_all = []
 
-        for i, batch in enumerate(tqdm(data_loader, desc=f"Inferencing Samples", unit=" Batches", disable=self.disable_tqdm)):
-
+        for batch in tqdm(data_loader, desc="Inferencing Samples", unit=" Batches", disable=self.disable_tqdm):
             batch = {key: batch[key].to(self.device) for key in batch}
 
             # get logits
@@ -686,7 +676,9 @@ class QAInferencer(Inferencer):
                              streaming=False) -> Union[List[QAPred], Generator[QAPred, None, None]]:
         if isinstance(self.processor, NaturalQuestionsProcessor):
             for questions_key in ['questions', 'qas']:
-                if questions_key in dicts[0].keys() and any([len(dict[questions_key]) > 1 for dict in dicts]):
+                if questions_key in dicts[0].keys() and any(
+                    len(dict[questions_key]) > 1 for dict in dicts
+                ):
                     logger.warning('More than one question for document. NaturalQuestions inference will return just the answer to the first question.')
         return Inferencer.inference_from_dicts(self, dicts, return_json=return_json,
                                                multiprocessing_chunksize=multiprocessing_chunksize, streaming=streaming)
@@ -714,7 +706,7 @@ class QAInferencer(Inferencer):
 class FasttextInferencer:
     def __init__(self, model, name=None):
         self.model = model
-        self.name = name if name != None else f"anonymous-fasttext"
+        self.name = name if name != None else "anonymous-fasttext"
         self.prediction_type = "embedder"
 
     @classmethod
@@ -739,8 +731,7 @@ class FasttextInferencer:
 
         preds_all = []
         for d in dicts:
-            pred = {}
-            pred["context"] = d["text"]
+            pred = {"context": d["text"]}
             if extraction_strategy == "reduce_mean":
                 pred["vec"] = self.model.get_sentence_vector(d["text"])
             else:

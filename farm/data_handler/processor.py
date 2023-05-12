@@ -122,10 +122,7 @@ class Processor(ABC):
         self.dev_filename = dev_filename
         self.test_filename = test_filename
         self.dev_split = dev_split
-        if data_dir:
-            self.data_dir = Path(data_dir)
-        else:
-            self.data_dir = None
+        self.data_dir = Path(data_dir) if data_dir else None
         self.baskets = []
 
         self._log_params()
@@ -183,7 +180,7 @@ class Processor(ABC):
             f"Got more parameters than needed for loading {processor_name}: {unused_args}. "
             f"Those won't be used!"
         )
-        processor = cls.subclasses[processor_name](
+        return cls.subclasses[processor_name](
             data_dir=data_dir,
             tokenizer=tokenizer,
             max_seq_len=max_seq_len,
@@ -193,8 +190,6 @@ class Processor(ABC):
             dev_split=dev_split,
             **kwargs,
         )
-
-        return processor
 
     @classmethod
     def load_from_dir(cls, load_dir):
@@ -261,7 +256,7 @@ class Processor(ABC):
             processor = InferenceProcessor(tokenizer=tokenizer, max_seq_len=max_seq_len)
 
         elif task_type == "text_classification":
-            label_list = list(config.id2label[id] for id in range(len(config.id2label)))
+            label_list = [config.id2label[id] for id in range(len(config.id2label))]
             processor = TextClassificationProcessor(tokenizer=tokenizer,
                                                     max_seq_len=max_seq_len,
                                                     data_dir="data",
@@ -326,7 +321,7 @@ class Processor(ABC):
 
         if label_name is None:
             label_name = f"{name}_label"
-        label_tensor_name = label_name + "_ids"
+        label_tensor_name = f"{label_name}_ids"
         self.tasks[name] = {
             "label_list": label_list,
             "metric": metric,
@@ -341,10 +336,10 @@ class Processor(ABC):
     def file_to_dicts(self, file: str) -> [dict]:
         raise NotImplementedError()
 
-    def _dict_to_samples(cls, dictionary: dict, all_dicts=None) -> [Sample]:
+    def _dict_to_samples(self, dictionary: dict, all_dicts=None) -> [Sample]:
         raise NotImplementedError()
 
-    def _sample_to_features(cls, sample: Sample) -> dict:
+    def _sample_to_features(self, sample: Sample) -> dict:
         raise NotImplementedError()
 
     def _dict_to_samples_and_features(self, dictionary: dict, all_dicts=None) -> [Sample]:
@@ -408,10 +403,7 @@ class Processor(ABC):
         """
         if len(basket.samples) == 0:
             return False
-        for sample in basket.samples:
-            if sample.features is None:
-                return False
-        return True
+        return all(sample.features is not None for sample in basket.samples)
 
     def _create_dataset(self):
         features_flat = []
@@ -423,7 +415,7 @@ class Processor(ABC):
             else:
                 # remove the entire basket
                 basket_to_remove.append(basket)
-        if len(basket_to_remove) > 0:
+        if basket_to_remove:
             for basket in basket_to_remove:
                 # if basket_to_remove is not empty remove the related baskets
                 self.baskets.remove(basket)
@@ -451,12 +443,8 @@ class Processor(ABC):
 
         self._init_samples_in_baskets()
         self._featurize_samples()
-        if indices:
-            if 0 in indices:
-                self._log_samples(1)
-        else:
+        if indices and 0 in indices or not indices:
             self._log_samples(1)
-
         dataset, tensor_names = self._create_dataset()
         # This mode is for inference where we need to keep baskets
         if return_baskets:
@@ -467,8 +455,8 @@ class Processor(ABC):
             return dataset, tensor_names, self.problematic_sample_ids
 
     def _log_samples(self, n_samples):
-        logger.info("*** Show {} random examples ***".format(n_samples))
-        for i in range(n_samples):
+        logger.info(f"*** Show {n_samples} random examples ***")
+        for _ in range(n_samples):
             random_basket = random.choice(self.baskets)
             random_sample = random.choice(random_basket.samples)
             logger.info(random_sample)
@@ -481,7 +469,7 @@ class Processor(ABC):
         names = ["max_seq_len", "dev_split"]
         for name in names:
             value = getattr(self, name)
-            params.update({name: str(value)})
+            params[name] = str(value)
         MlLogger.log_params(params)
 
     @staticmethod
@@ -575,7 +563,9 @@ class TextClassificationProcessor(Processor):
         self.header = header
         self.max_samples = max_samples
         self.dev_stratification = dev_stratification
-        logger.warning(f"Currently no support in Processor for returning problematic ids")
+        logger.warning(
+            "Currently no support in Processor for returning problematic ids"
+        )
 
         super(TextClassificationProcessor, self).__init__(
             tokenizer=tokenizer,
@@ -590,10 +580,7 @@ class TextClassificationProcessor(Processor):
 
         )
         if metric and label_list:
-            if multilabel:
-                task_type = "multilabel_classification"
-            else:
-                task_type = "classification"
+            task_type = "multilabel_classification" if multilabel else "classification"
             self.add_task(name="text_classification",
                           metric=metric,
                           label_list=label_list,
@@ -609,7 +596,7 @@ class TextClassificationProcessor(Processor):
         for task in self.tasks.values():
             column_mapping[task["label_column_name"]] = task["label_name"]
             column_mapping[task["text_column_name"]] = "text"
-        dicts = read_tsv(
+        return read_tsv(
             filename=file,
             delimiter=self.delimiter,
             skiprows=self.skiprows,
@@ -617,10 +604,8 @@ class TextClassificationProcessor(Processor):
             rename_columns=column_mapping,
             header=self.header,
             proxies=self.proxies,
-            max_samples=self.max_samples
-            )
-
-        return dicts
+            max_samples=self.max_samples,
+        )
 
     def dataset_from_dicts(self, dicts, indices=None, return_baskets=False, debug=False):
         self.baskets = []
@@ -658,7 +643,7 @@ class TextClassificationProcessor(Processor):
             # i.e. not inference
             if not return_baskets:
                 label_dict = self.convert_labels(dictionary)
-                feat_dict.update(label_dict)
+                feat_dict |= label_dict
 
             # Add Basket to self.baskets
             curr_sample = Sample(id=None,
@@ -671,9 +656,7 @@ class TextClassificationProcessor(Processor):
                                        samples=[curr_sample])
             self.baskets.append(curr_basket)
 
-        if indices and 0 not in indices:
-            pass
-        else:
+        if not indices or 0 in indices:
             self._log_samples(1)
 
         # TODO populate problematic ids
@@ -729,10 +712,10 @@ class TextPairClassificationProcessor(TextClassificationProcessor):
         super(TextPairClassificationProcessor, self).__init__(**kwargs)
 
     def file_to_dicts(self, file: str) -> [dict]:
-        column_mapping = {}
-        for task in self.tasks.values():
-            column_mapping[task["label_column_name"]] = task["label_name"]
-
+        column_mapping = {
+            task["label_column_name"]: task["label_name"]
+            for task in self.tasks.values()
+        }
         dicts = read_tsv_sentence_pair(
             rename_columns=column_mapping,
             filename=file,
@@ -872,22 +855,20 @@ class RegressionProcessor(TextClassificationProcessor):
         # For regression the label should be scaled
         ret = {}
         for task_name, task in self.tasks.items():
-            label_name = task["label_name"]
-            label_raw = dictionary[label_name]
-            label_list = task["label_list"]
             if task["task_type"] == "regression":
+                label_name = task["label_name"]
+                label_raw = dictionary[label_name]
                 label = float(label_raw)
+                label_list = task["label_list"]
                 scaled_label = (label - label_list[0]) / label_list[1]
                 ret[task["label_tensor_name"]] = [scaled_label]
         return ret
 
     def _set_label_scaling(self, dicts, file):
-        # collect all labels and compute scaling stats
-        # for regression with Mean Squared Error loss we need to have labels centered around 0 with unit variance
-        train_labels = []
         if self.train_filename in str(file):
-            for d in dicts:
-                train_labels.append(float(d[self.tasks["regression"]["label_name"]]))
+            train_labels = [
+                float(d[self.tasks["regression"]["label_name"]]) for d in dicts
+            ]
             scaler = StandardScaler()
             scaler.fit(np.reshape(train_labels, (-1, 1)))
             # add to label list in regression task
@@ -904,10 +885,10 @@ class TextPairRegressionProcessor(RegressionProcessor):
         super(TextPairRegressionProcessor, self).__init__(**kwargs)
 
     def file_to_dicts(self, file: str) -> [dict]:
-        column_mapping = {}
-        for task in self.tasks.values():
-            column_mapping[task["label_column_name"]] = task["label_name"]
-
+        column_mapping = {
+            task["label_column_name"]: task["label_name"]
+            for task in self.tasks.values()
+        }
         dicts = read_tsv_sentence_pair(
             rename_columns=column_mapping,
             filename=file,
@@ -985,9 +966,7 @@ class InferenceProcessor(TextClassificationProcessor):
         raise NotImplementedError
 
     def convert_labels(self, dictionary: dict):
-        # For inference we do not need labels
-        ret = {}
-        return ret
+        return {}
 
     def dataset_from_dicts(self, dicts, indices=None, return_baskets=False, debug=False):
         """
@@ -996,33 +975,30 @@ class InferenceProcessor(TextClassificationProcessor):
         For slow tokenizers, s3e or wordembedding tokenizers the function works on _dict_to_samples and _sample_to_features
         """
         # TODO remove this sections once tokenizers work the same way for slow/fast and our special tokenizers
-        if not self.tokenizer.is_fast:
-            self.baskets = []
-            for d in dicts:
-                sample = self._dict_to_samples(dictionary=d)
-                features = self._sample_to_features(sample)
-                sample.features = features
-                basket = SampleBasket(id_internal=None,
-                                      raw=d,
-                                      id_external=None,
-                                      samples=[sample])
-                self.baskets.append(basket)
-            if indices and 0 not in indices:
-                pass
-            else:
-                self._log_samples(1)
-
-            problematic_ids = set()
-            dataset, tensornames = self._create_dataset()
-            ret = [dataset, tensornames, problematic_ids]
-            if return_baskets:
-                ret.append(self.baskets)
-            return ret
-        else:
+        if self.tokenizer.is_fast:
             return super().dataset_from_dicts(dicts=dicts,
                                        indices=indices,
                                        return_baskets=return_baskets,
                                        debug=debug)
+        self.baskets = []
+        for d in dicts:
+            sample = self._dict_to_samples(dictionary=d)
+            features = self._sample_to_features(sample)
+            sample.features = features
+            basket = SampleBasket(id_internal=None,
+                                  raw=d,
+                                  id_external=None,
+                                  samples=[sample])
+            self.baskets.append(basket)
+        if not indices or 0 in indices:
+            self._log_samples(1)
+
+        problematic_ids = set()
+        dataset, tensornames = self._create_dataset()
+        ret = [dataset, tensornames, problematic_ids]
+        if return_baskets:
+            ret.append(self.baskets)
+        return ret
 
     # Private method to keep s3e pooling and embedding extraction working
     def _dict_to_samples(self, dictionary: dict, **kwargs) -> [Sample]:
@@ -1037,13 +1013,12 @@ class InferenceProcessor(TextClassificationProcessor):
 
     # Private method to keep s3e pooling and embedding extraction working
     def _sample_to_features(self, sample) -> dict:
-        features = sample_to_features_text(
+        return sample_to_features_text(
             sample=sample,
             tasks=self.tasks,
             max_seq_len=self.max_seq_len,
             tokenizer=self.tokenizer,
         )
-        return features
 
 
 
@@ -1126,8 +1101,7 @@ class NERProcessor(Processor):
                         "using the default task or add a custom task later via processor.add_task()")
 
     def file_to_dicts(self, file: str) -> [dict]:
-        dicts = read_ner_file(filename=file, sep=self.delimiter,  proxies=self.proxies)
-        return dicts
+        return read_ner_file(filename=file, sep=self.delimiter,  proxies=self.proxies)
 
     def dataset_from_dicts(self, dicts, indices=None, return_baskets=False, non_initial_token="X"):
         self.baskets = []
@@ -1161,11 +1135,7 @@ class NERProcessor(Processor):
             # based on the order of the dictionaries coming in, taking into account
             # the indices generated by chunking and multiprocessing
             id_external = self._id_from_dict(d)
-            if indices:
-                id_internal = indices[i]
-            else:
-                id_internal = i
-
+            id_internal = indices[i] if indices else i
             input_ids = tokenized.ids
             segment_ids = tokenized.type_ids
 
@@ -1212,9 +1182,9 @@ class NERProcessor(Processor):
                     # Usually triggered if label is not in label list
                     label_ids = None
                     problematic_labels = set(labels_token).difference(set(label_list))
-                    logger.warning(f"[Task: {task_name}] Could not convert labels to ids via label_list!"
-                                   f"\nWe found a problem with labels {str(problematic_labels)}")
-                # TODO change this when inference flag is implemented
+                    logger.warning(
+                        f"[Task: {task_name}] Could not convert labels to ids via label_list!\nWe found a problem with labels {problematic_labels}"
+                    )
                 except KeyError:
                     # Usually triggered if there is no label in the sample
                     # This is expected during inference since there are no labels
@@ -1238,9 +1208,7 @@ class NERProcessor(Processor):
             self.baskets.append(curr_basket)
 
         # Don't log if we are processing a dataset chunk other than the first chunk
-        if indices and 0 not in indices:
-            pass
-        else:
+        if not indices or 0 in indices:
             self._log_samples(1)
 
         dataset, tensor_names = self._create_dataset()
@@ -1254,7 +1222,7 @@ class NERProcessor(Processor):
     @staticmethod
     def _get_start_of_word(word_ids):
         words = np.array(word_ids)
-        words[words == None] = -1
+        words[words is None] = -1
         start_of_word_single = [0] + list(np.ediff1d(words) > 0)
         start_of_word_single = [int(x) for x in start_of_word_single]
         return start_of_word_single
@@ -1360,8 +1328,12 @@ class BertStyleLMProcessor(Processor):
         return [x[1] for x in sorted_tuples]
 
     def file_to_dicts(self, file: str) -> list:
-        dicts = read_docs_from_txt(filename=file, delimiter=self.delimiter, max_docs=self.max_docs, proxies=self.proxies)
-        return dicts
+        return read_docs_from_txt(
+            filename=file,
+            delimiter=self.delimiter,
+            max_docs=self.max_docs,
+            proxies=self.proxies,
+        )
 
     def dataset_from_dicts(self, dicts, indices=None, return_baskets=False):
         dicts = [d["doc"] for d in dicts]
@@ -1382,12 +1354,11 @@ class BertStyleLMProcessor(Processor):
         else:
            samples = self._create_sequence_pairs_no_next_sent(dicts)
 
-        # 2) Create labels (masking words + NSP)
-        features = []
         vocab_length = len(self.tokenizer.vocab)-1
-        for sample in samples:
-            features.append(self._create_labels(sample=sample, vocab_length=vocab_length))
-
+        features = [
+            self._create_labels(sample=sample, vocab_length=vocab_length)
+            for sample in samples
+        ]
         # 3) Create dataset
         dataset, tensor_names = convert_features_to_dataset(features=features)
         return dataset, tensor_names, set()
@@ -1414,11 +1385,10 @@ class BertStyleLMProcessor(Processor):
 
         assert len(encoded_pairs.input_ids) == len(raw_pairs)
 
-        # Create "Start of word mask"
-        start_of_word = []
-        for e in encoded_pairs.encodings:
-            start_of_word.append(_get_start_of_word(e.words, e.special_tokens_mask))
-
+        start_of_word = [
+            _get_start_of_word(e.words, e.special_tokens_mask)
+            for e in encoded_pairs.encodings
+        ]
         # Create Sample objects
         for idx in range(len(raw_pairs)):
             if len(encoded_pairs.input_ids[idx]) == 0:
@@ -1499,11 +1469,10 @@ class BertStyleLMProcessor(Processor):
 
         assert len(encoded_pairs.input_ids) == len(docs)
 
-        # Create "Start of word mask"
-        start_of_word = []
-        for e in encoded_pairs.encodings:
-            start_of_word.append(_get_start_of_word(e.words, e.special_tokens_mask))
-
+        start_of_word = [
+            _get_start_of_word(e.words, e.special_tokens_mask)
+            for e in encoded_pairs.encodings
+        ]
         # Create Sample objects
         for idx in range(len(docs)):
             if len(encoded_pairs.input_ids[idx]) == 0:
@@ -1582,7 +1551,7 @@ class BertStyleLMProcessor(Processor):
             # determine how many segments from chunk go into sequence A
             a_end = random.randrange(1, len(chunk))
             sequence_a = chunk[:a_end]
-            length_a = sum([len(seq) for seq in sequence_a])
+            length_a = sum(len(seq) for seq in sequence_a)
 
             # Build sequence B
             target_b_length = max_num_tokens - length_a
@@ -1723,9 +1692,9 @@ class BertStyleLMProcessor(Processor):
 
         cand_indices = []
         for (i, token) in enumerate(tokens):
-            if token == cls_token_id or token == sep_token_id or token == pad_token_id: # CLS, SEP and PAD tokens
+            if token in [cls_token_id, sep_token_id, pad_token_id]: # CLS, SEP and PAD tokens
                 continue
-            if (token_groups and len(cand_indices) >= 1 and not token_groups[i]):
+            if token_groups and cand_indices and not token_groups[i]:
                 cand_indices[-1].append(i)
             else:
                 cand_indices.append([i])
@@ -1770,7 +1739,7 @@ class BertStyleLMProcessor(Processor):
                     # For unknown words (should not occur with BPE vocab)
                     output_label[index] = 100 # UNK token
                     logger.warning(
-                        "Cannot find token '{}' in vocab. Using [UNK] instead".format(original_token)
+                        f"Cannot find token '{original_token}' in vocab. Using [UNK] instead"
                     )
 
         return tokens, output_label
@@ -1785,7 +1754,7 @@ class BertStyleLMProcessor(Processor):
         :return: int, number of samples in the given dataset
         """
 
-        total_lines = sum(1 for line in open(filepath, encoding="utf-8"))
+        total_lines = sum(1 for _ in open(filepath, encoding="utf-8"))
         empty_lines = sum(1 if line == "\n" else 0 for line in open(filepath, encoding="utf-8"))
 
         if self.next_sent_pred_style == "sentence":
@@ -1794,7 +1763,7 @@ class BertStyleLMProcessor(Processor):
         elif self.next_sent_pred_style == "bert-style":
             # Original BERT LM training (filling up sequence pairs with sentences until max_seq_len)
             # (This is a very rough heuristic, as we can only estimate the real number of samples AFTER tokenization)
-            logging.info(f"Estimating total number of samples ...")
+            logging.info("Estimating total number of samples ...")
             # read in subset of docs
             if self.max_docs:
                 temp = self.max_docs
@@ -1809,7 +1778,7 @@ class BertStyleLMProcessor(Processor):
             dicts = [d["doc"] for d in dicts]
             n_samples = len(self._create_sequence_pairs_bert_style(docs=dicts))
             # extrapolate to the whole file
-            n_samples = int(n_samples / len(dicts)) * (empty_lines+1)
+            n_samples = n_samples // len(dicts) * (empty_lines+1)
             logging.info(f"Heuristic estimate of number of samples in {filepath} based on {len(dicts)} docs: {n_samples}")
         else:
             raise NotImplementedError(f"No estimate logic for next_sent_pred_style={self.next_sent_pred_style} implemented")
@@ -1873,11 +1842,9 @@ class SquadProcessor(Processor):
         self.target = "classification"
         self.ph_output_type = "per_token_squad"
 
-        assert doc_stride < (max_seq_len - max_query_length), \
-            "doc_stride ({}) is longer than max_seq_len ({}) minus space reserved for query tokens ({}). \nThis means that there will be gaps " \
-            "as the passage windows slide, causing the model to skip over parts of the document.\n" \
-            "Please set a lower value for doc_stride (Suggestions: doc_stride=128, max_seq_len=384)\n " \
-            "Or decrease max_query_length".format(doc_stride, max_seq_len, max_query_length)
+        assert doc_stride < (
+            max_seq_len - max_query_length
+        ), f"doc_stride ({doc_stride}) is longer than max_seq_len ({max_seq_len}) minus space reserved for query tokens ({max_query_length}). \nThis means that there will be gaps as the passage windows slide, causing the model to skip over parts of the document.\nPlease set a lower value for doc_stride (Suggestions: doc_stride=128, max_seq_len=384)\n Or decrease max_query_length"
 
         self.doc_stride = doc_stride
         self.max_query_length = max_query_length
@@ -1943,8 +1910,7 @@ class SquadProcessor(Processor):
 
     def file_to_dicts(self, file: str) -> [dict]:
         nested_dicts = read_squad_file(filename=file)
-        dicts = [y for x in nested_dicts for y in x["paragraphs"]]
-        return dicts
+        return [y for x in nested_dicts for y in x["paragraphs"]]
 
     # TODO use Input Objects instead of this function
     def convert_qa_input_dict(self, infer_dict):
@@ -1953,11 +1919,9 @@ class SquadProcessor(Processor):
         is_impossible field to answer_type so that NQ and SQuAD dicts have the same format.
         """
         # check again for doc stride vs max_seq_len when. Parameters can be changed for already initialized models (e.g. in haystack)
-        assert self.doc_stride < (self.max_seq_len - self.max_query_length), \
-            "doc_stride ({}) is longer than max_seq_len ({}) minus space reserved for query tokens ({}). \nThis means that there will be gaps " \
-            "as the passage windows slide, causing the model to skip over parts of the document.\n" \
-            "Please set a lower value for doc_stride (Suggestions: doc_stride=128, max_seq_len=384)\n " \
-            "Or decrease max_query_length".format(self.doc_stride, self.max_seq_len, self.max_query_length)
+        assert self.doc_stride < (
+            self.max_seq_len - self.max_query_length
+        ), f"doc_stride ({self.doc_stride}) is longer than max_seq_len ({self.max_seq_len}) minus space reserved for query tokens ({self.max_query_length}). \nThis means that there will be gaps as the passage windows slide, causing the model to skip over parts of the document.\nPlease set a lower value for doc_stride (Suggestions: doc_stride=128, max_seq_len=384)\n Or decrease max_query_length"
 
         try:
             # Check if infer_dict is already in internal json format
@@ -1967,13 +1931,11 @@ class SquadProcessor(Processor):
             questions = infer_dict["questions"]
             text = infer_dict["text"]
             uid = infer_dict.get("id", None)
-            qas = [{"question": q,
-                    "id": uid,
-                    "answers": [],
-                    "answer_type": None} for i, q in enumerate(questions)]
-            converted = {"qas": qas,
-                         "context": text}
-            return converted
+            qas = [
+                {"question": q, "id": uid, "answers": [], "answer_type": None}
+                for q in questions
+            ]
+            return {"qas": qas, "context": text}
         except KeyError:
             raise Exception("Input does not have the expected format")
 
@@ -2061,7 +2023,7 @@ class SquadProcessor(Processor):
         """
         for basket in baskets:
             error_in_answer = False
-            for num, sample in enumerate(basket.samples):
+            for sample in basket.samples:
                 # Dealing with potentially multiple answers (e.g. Squad dev set)
                 # Initializing a numpy array of shape (max_answers, 2), filled with -1 for missing values
                 label_idxs = np.full((self.max_answers, 2), fill_value=-1)
@@ -2090,18 +2052,17 @@ class SquadProcessor(Processor):
                         answer_start_t -= sample.tokenized["passage_start_t"]
                         answer_end_t -= sample.tokenized["passage_start_t"]
 
-                        # Initialize some basic variables
-                        question_len_t = len(sample.tokenized["question_tokens"])
                         passage_len_t = len(sample.tokenized["passage_tokens"])
 
                         # Check that start and end are contained within this passage
                         # answer_end_t is 0 if the first token is the answer
                         # answer_end_t is passage_len_t if the last token is the answer
                         if passage_len_t > answer_start_t >= 0 and passage_len_t >= answer_end_t >= 0:
+                            # Initialize some basic variables
+                            question_len_t = len(sample.tokenized["question_tokens"])
                             # Then adjust the start and end offsets by adding question and special token
                             label_idxs[i][0] = self.sp_toks_start + question_len_t + self.sp_toks_mid + answer_start_t
                             label_idxs[i][1] = self.sp_toks_start + question_len_t + self.sp_toks_mid + answer_end_t
-                        # If the start or end of the span answer is outside the passage, treat passage as no_answer
                         else:
                             label_idxs[i][0] = 0
                             label_idxs[i][1] = 0
@@ -2109,9 +2070,7 @@ class SquadProcessor(Processor):
                         ########## answer checking ##############################
                         # TODO, move this checking into input validation functions and delete wrong examples there
                         # Cases where the answer is not within the current passage will be turned into no answers by the featurization fn
-                        if answer_start_t < 0 or answer_end_t >= passage_len_t:
-                            pass
-                        else:
+                        if answer_start_t >= 0 and answer_end_t < passage_len_t:
                             doc_text = basket.raw["document_text"]
                             answer_indices = doc_text[answer_start_c: answer_end_c + 1]
                             answer_text = answer["text"]
@@ -2130,7 +2089,7 @@ class SquadProcessor(Processor):
                                 label_idxs[i][0] = -100 # TODO remove this hack also from featurization
                                 label_idxs[i][1] = -100
                                 break # Break loop around answers, so the error message is not shown multiple times
-                        ########## end of checking ####################
+                                        ########## end of checking ####################
 
                 sample.tokenized["labels"] = label_idxs
 
@@ -2144,7 +2103,7 @@ class SquadProcessor(Processor):
         """
         for basket in baskets:
             # Add features to samples
-            for num, sample in enumerate(basket.samples):
+            for sample in basket.samples:
                 # Initialize some basic variables
                 question_tokens = sample.tokenized["question_tokens"]
                 question_start_of_word = sample.tokenized["question_start_of_word"]
@@ -2171,10 +2130,10 @@ class SquadProcessor(Processor):
                 seq_2_start_t = self.sp_toks_start + question_len_t + self.sp_toks_mid
 
                 start_of_word = [0] * self.sp_toks_start + \
-                                    question_start_of_word + \
-                                    [0] * self.sp_toks_mid + \
-                                    passage_start_of_word + \
-                                    [0] * self.sp_toks_end
+                                        question_start_of_word + \
+                                        [0] * self.sp_toks_mid + \
+                                        passage_start_of_word + \
+                                        [0] * self.sp_toks_end
 
                 # The mask has 1 for real tokens and 0 for padding tokens. Only real
                 # tokens are attended to.
@@ -2240,7 +2199,7 @@ class SquadProcessor(Processor):
             else:
                 # remove the entire basket
                 basket_to_remove.append(basket)
-        if len(basket_to_remove) > 0:
+        if basket_to_remove:
             for basket in basket_to_remove:
                 # if basket_to_remove is not empty remove the related baskets
                 baskets.remove(basket)
@@ -2249,8 +2208,8 @@ class SquadProcessor(Processor):
         return dataset, tensor_names, baskets
 
     def _log_samples(self, n_samples, baskets):
-        logger.info("*** Show {} random examples ***".format(n_samples))
-        for i in range(n_samples):
+        logger.info(f"*** Show {n_samples} random examples ***")
+        for _ in range(n_samples):
             random_basket = random.choice(baskets)
             random_sample = random.choice(random_basket.samples)
             logger.info(random_sample)
@@ -2354,8 +2313,7 @@ class NaturalQuestionsProcessor(Processor):
         self.sp_toks_end = len(vec) - vec.index("b") - 1
 
     def file_to_dicts(self, file: str) -> [dict]:
-        dicts = read_jsonl(file, proxies=self.proxies)
-        return dicts
+        return read_jsonl(file, proxies=self.proxies)
 
     def _dict_to_samples(self, dictionary: dict, all_dicts=None) -> [Sample]:
         """
@@ -2386,9 +2344,14 @@ class NaturalQuestionsProcessor(Processor):
 
     @staticmethod
     def _is_nq_dict(dictionary):
-        if set(dictionary.keys()) == {'document_text', 'long_answer_candidates', 'question_text', 'annotations', 'document_url', 'example_id'}:
-            return True
-        return False
+        return set(dictionary.keys()) == {
+            'document_text',
+            'long_answer_candidates',
+            'question_text',
+            'annotations',
+            'document_url',
+            'example_id',
+        }
 
     def _downsample(self, samples, keep_prob):
         # Downsamples samples with a no_answer label (since there is an overrepresentation of these in NQ)
@@ -2401,7 +2364,7 @@ class NaturalQuestionsProcessor(Processor):
                     ret.append(s)
             else:
                 ret.append(s)
-        if len(ret) == 0:
+        if not ret:
             ret = [random.choice(samples)]
         return ret
 
@@ -2470,20 +2433,24 @@ class NaturalQuestionsProcessor(Processor):
             text, start_c = self._choose_span(sa_text, sa_start_c, la_text, la_start_c)
             converted_answers.append({"text": text,
                                       "answer_start": start_c})
-        if len(converted_answers) == 0:
+        if not converted_answers:
             answer_type = "no_answer"
         else:
             answer_type = dictionary["annotations"][0]["yes_no_answer"].lower()
             if answer_type == "none":
                 answer_type = "span"
-        # TODO: answer_type should be in answers since in NQ, each annotator can give either a span, no_answer, yes or no
-        converted = {"id": dictionary["example_id"],
-                     "context": doc_text,
-                     "qas": [{"question": dictionary["question_text"],
-                              "id": dictionary["example_id"],
-                              "answers": converted_answers,
-                              "answer_type": answer_type}]}
-        return converted
+        return {
+            "id": dictionary["example_id"],
+            "context": doc_text,
+            "qas": [
+                {
+                    "question": dictionary["question_text"],
+                    "id": dictionary["example_id"],
+                    "answers": converted_answers,
+                    "answer_type": answer_type,
+                }
+            ],
+        }
 
     @staticmethod
     def _check_no_answer(annotation):
@@ -2505,10 +2472,7 @@ class NaturalQuestionsProcessor(Processor):
             return True
         if first_answer["end_t"] > sample_tok["passage_start_t"] + len(sample_tok["passage_tokens"]):
             return True
-        if first_answer["answer_type"] == "no_answer":
-            return True
-        else:
-            return False
+        return first_answer["answer_type"] == "no_answer"
 
     def _retrieve_long_answer(self, start_t, end_t, tok_to_ch, doc_text):
         """ Retrieves the string long answer and also its starting character index"""
@@ -2533,8 +2497,9 @@ class NaturalQuestionsProcessor(Processor):
         short_answer_idxs = []
         # TODO write comment explaining this
         for short_answer in short_answers:
-            short_answer_idxs.append(short_answer["start_token"])
-            short_answer_idxs.append(short_answer["end_token"])
+            short_answer_idxs.extend(
+                (short_answer["start_token"], short_answer["end_token"])
+            )
         answer_start_t = min(short_answer_idxs)
         answer_end_t = max(short_answer_idxs)
         answer_start_c, answer_end_c = self._convert_tok_to_ch(answer_start_t, answer_end_t, tok_to_ch, doc_text)
@@ -2559,15 +2524,16 @@ class NaturalQuestionsProcessor(Processor):
 
     def _sample_to_features(self, sample: Sample) -> dict:
         self._check_valid_answer(sample)
-        features = sample_to_features_qa_Natural_Questions(sample=sample,
-                                         tokenizer=self.tokenizer,
-                                         max_seq_len=self.max_seq_len,
-                                         sp_toks_start=self.sp_toks_start,
-                                         sp_toks_mid=self.sp_toks_mid,
-                                         sp_toks_end=self.sp_toks_end,
-                                         answer_type_list=self.answer_type_list,
-                                         max_answers=self.max_answers)
-        return features
+        return sample_to_features_qa_Natural_Questions(
+            sample=sample,
+            tokenizer=self.tokenizer,
+            max_seq_len=self.max_seq_len,
+            sp_toks_start=self.sp_toks_start,
+            sp_toks_mid=self.sp_toks_mid,
+            sp_toks_end=self.sp_toks_end,
+            answer_type_list=self.answer_type_list,
+            max_answers=self.max_answers,
+        )
 
     def _check_valid_answer(self, sample):
         passage_text = sample.clear_text["passage_text"]
@@ -2634,15 +2600,11 @@ class NaturalQuestionsProcessor(Processor):
                     if 'answer_type' in answer.keys() and answer['answer_type'] in answer_types_list:
                         answer_type = answer['answer_type']
                     else:
-                        if answer["text"] == "":
-                            answer_type = "no_answer"
-                        else:
-                            answer_type = "span"
+                        answer_type = "no_answer" if answer["text"] == "" else "span"
                     a = {"text": answer["text"],
                          "offset": answer["answer_start"],
                          "answer_type": answer_type}
                     answers.append(a)
-            # For inference where samples are read in as dicts without an id or answers
             except TypeError:
                 external_id = try_get(ID_NAMES, dictionary)
                 question_text = question
@@ -2965,7 +2927,8 @@ class TextSimilarityProcessor(Processor):
 
                     if len(tokenized_query) == 0:
                         logger.warning(
-                            f"The query could not be tokenized, likely because it contains a character that the query tokenizer does not recognize")
+                            "The query could not be tokenized, likely because it contains a character that the query tokenizer does not recognize"
+                        )
                         return None
 
                     clear_text["query_text"] = query
@@ -3058,7 +3021,7 @@ class TextSimilarityProcessor(Processor):
             else:
                 # remove the entire basket
                 basket_to_remove.append(basket)
-        if len(basket_to_remove) > 0:
+        if basket_to_remove:
             for basket in basket_to_remove:
                 # if basket_to_remove is not empty remove the related baskets
                 problematic_ids.add(basket.id_internal)
@@ -3082,5 +3045,5 @@ class TextSimilarityProcessor(Processor):
                 title = ""
                 logger.warning(
                     f"Couldn't find title although `embed_title` is set to True for DPR. Using title='' now. Related passage text: '{ctx}' ")
-            res.append(tuple((title, ctx)))
+            res.append((title, ctx))
         return res

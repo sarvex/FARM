@@ -76,9 +76,7 @@ def read_tsv(filename, rename_columns, quotechar='"', delimiter="\t", skiprows=N
     df.rename(columns=rename_columns, inplace=True)
     df.fillna("", inplace=True)
 
-    # convert df to one dict per row
-    raw_dict = df.to_dict(orient="records")
-    return raw_dict
+    return df.to_dict(orient="records")
 
 def read_tsv_sentence_pair(filename, rename_columns, delimiter="\t", skiprows=None, header=0, proxies=None, max_samples=None):
     """Reads a tab separated value file. Tries to download the data if filename is not found"""
@@ -108,17 +106,14 @@ def read_tsv_sentence_pair(filename, rename_columns, delimiter="\t", skiprows=No
     for source_column, label_name in rename_columns.items():
         df[label_name] = df[source_column].fillna("")
         df.drop(columns=[source_column], inplace=True)
-    # convert df to one dict per row
-    raw_dict = df.to_dict(orient="records")
-    return raw_dict
+    return df.to_dict(orient="records")
 
 def read_jsonl(file, proxies=None):
     # get remote dataset if needed
     if not (os.path.exists(file)):
         logger.info(f" Couldn't find {file} locally. Trying to download ...")
         _download_extract_downstream_data(file, proxies=proxies)
-    dicts = [json.loads(l) for l in open(file, encoding="utf-8")]
-    return dicts
+    return [json.loads(l) for l in open(file, encoding="utf-8")]
 
 def read_ner_file(filename, sep="\t", proxies=None):
     """
@@ -127,14 +122,12 @@ def read_ner_file(filename, sep="\t", proxies=None):
     [ ['EU', 'B-ORG'], ['rejects', 'O'], ['German', 'B-MISC'], ['call', 'O'], ['to', 'O'], ['boycott', 'O'], ['British', 'B-MISC'], ['lamb', 'O'], ['.', 'O'] ]
     """
     # checks for correct separator
-    if "conll03-de" in str(filename):
-        if sep != " ":
-            logger.error(f"Separator {sep} for dataset German CONLL03 does not match the requirements. Setting seperator to whitespace")
-            sep = " "
-    if "germeval14" in str(filename):
-        if sep != "\t":
-            logger.error(f"Separator {sep} for dataset GermEval14 de does not match the requirements. Setting seperator to tab")
-            sep = "\t"
+    if "conll03-de" in str(filename) and sep != " ":
+        logger.error(f"Separator {sep} for dataset German CONLL03 does not match the requirements. Setting seperator to whitespace")
+        sep = " "
+    if "germeval14" in str(filename) and sep != "\t":
+        logger.error(f"Separator {sep} for dataset GermEval14 de does not match the requirements. Setting seperator to tab")
+        sep = "\t"
 
     if not (os.path.exists(filename)):
         logger.info(f" Couldn't find {filename} locally. Trying to download ...")
@@ -219,8 +212,7 @@ def read_dpr_json(file, max_samples=None, proxies=None, num_hard_negatives=1, nu
     if file.suffix.lower() == ".jsonl":
         dicts = []
         with open(file, encoding='utf-8') as f:
-            for line in f:
-                dicts.append(json.loads(line))
+            dicts.extend(json.loads(line) for line in f)
     else:
         dicts = json.load(open(file, encoding='utf-8'))
 
@@ -241,23 +233,31 @@ def read_dpr_json(file, max_samples=None, proxies=None, num_hard_negatives=1, nu
             elif key in positive_context_json_keys:
                 if shuffle_positives:
                     random.shuffle(val)
-                for passage in val[:num_positives]:
-                    passages.append({
+                passages.extend(
+                    {
                         "title": passage["title"],
                         "text": passage["text"],
                         "label": "positive",
-                        "external_id": passage.get("passage_id", uuid.uuid4().hex.upper()[0:8])
-                        })
+                        "external_id": passage.get(
+                            "passage_id", uuid.uuid4().hex.upper()[:8]
+                        ),
+                    }
+                    for passage in val[:num_positives]
+                )
             elif key in hard_negative_json_keys:
                 if shuffle_negatives:
                     random.shuffle(val)
-                for passage in val[:num_hard_negatives]:
-                    passages.append({
+                passages.extend(
+                    {
                         "title": passage["title"],
                         "text": passage["text"],
                         "label": "hard_negative",
-                        "external_id": passage.get("passage_id", uuid.uuid4().hex.upper()[0:8])
-                        })
+                        "external_id": passage.get(
+                            "passage_id", uuid.uuid4().hex.upper()[:8]
+                        ),
+                    }
+                    for passage in val[:num_hard_negatives]
+                )
         sample["passages"] = passages
         standard_dicts.append(sample)
     return standard_dicts
@@ -350,9 +350,7 @@ def _download_extract_downstream_data(input_file, proxies=None):
     directory = full_path.parent
     taskname = directory.stem
     datadir = directory.parent
-    logger.info(
-        "downloading and extracting file {} to dir {}".format(taskname, datadir)
-    )
+    logger.info(f"downloading and extracting file {taskname} to dir {datadir}")
     if "conll03-" in taskname:
         # conll03 is copyrighted, but luckily somebody put it on github. Kudos!
         if not os.path.exists(directory):
@@ -363,32 +361,38 @@ def _download_extract_downstream_data(input_file, proxies=None):
             elif "en" in taskname:
                 _conll03get(dataset, directory, "en")
             else:
-                logger.error("Cannot download {}. Unknown data source.".format(taskname))
+                logger.error(f"Cannot download {taskname}. Unknown data source.")
     elif taskname not in DOWNSTREAM_TASK_MAP:
-        logger.error("Cannot download {}. Unknown data source.".format(taskname))
+        logger.error(f"Cannot download {taskname}. Unknown data source.")
     else:
-        if os.name == "nt":  # make use of NamedTemporaryFile compatible with Windows
-            delete_tmp_file = False
-        else:
-            delete_tmp_file = True
+        delete_tmp_file = os.name != "nt"
         with tempfile.NamedTemporaryFile(delete=delete_tmp_file) as temp_file:
             http_get(DOWNSTREAM_TASK_MAP[taskname], temp_file, proxies=proxies)
             temp_file.flush()
             temp_file.seek(0)  # making tempfile accessible
 
             # checking files for correctness with md5sum.
-            if("germeval14" in taskname):
-                if "2c9d5337d7a25b9a4bf6f5672dd091bc" != _get_md5checksum(temp_file.name):
-                    logger.error(f"Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
-            elif "germeval18" in taskname:
-                if "23244fa042dcc39e844635285c455205" != _get_md5checksum(temp_file.name):
-                    logger.error(f"Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
-            elif "gnad" in taskname:
-                if "ef62fe3f59c1ad54cf0271d8532b8f22" != _get_md5checksum(temp_file.name):
-                    logger.error(f"Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
-            elif "germeval17" in taskname:
-                if "f1bf67247dcfe7c3c919b7b20b3f736e" != _get_md5checksum(temp_file.name):
-                    logger.error(f"Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
+            if (
+                ("germeval14" in taskname)
+                and _get_md5checksum(temp_file.name)
+                != "2c9d5337d7a25b9a4bf6f5672dd091bc"
+                or "germeval14" not in taskname
+                and "germeval18" in taskname
+                and _get_md5checksum(temp_file.name)
+                != "23244fa042dcc39e844635285c455205"
+                or "germeval14" not in taskname
+                and "germeval18" not in taskname
+                and "gnad" in taskname
+                and _get_md5checksum(temp_file.name)
+                != "ef62fe3f59c1ad54cf0271d8532b8f22"
+                or "germeval14" not in taskname
+                and "germeval18" not in taskname
+                and "gnad" not in taskname
+                and "germeval17" in taskname
+                and _get_md5checksum(temp_file.name)
+                != "f1bf67247dcfe7c3c919b7b20b3f736e"
+            ):
+                logger.error(f"Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
             tfile = tarfile.open(temp_file.name)
             tfile.extractall(datadir)
         # temp_file gets deleted here
@@ -404,17 +408,26 @@ def _conll03get(dataset, directory, language):
 
     # checking files for correctness with md5sum.
     if f"conll03{language}{dataset}" == "conll03detrain":
-        if "ae4be68b11dc94e0001568a9095eb391" != _get_md5checksum(str(directory / f"{dataset}.txt")):
+        if (
+            _get_md5checksum(str(directory / f"{dataset}.txt"))
+            != "ae4be68b11dc94e0001568a9095eb391"
+        ):
             logger.error(
                 f"Someone has changed the file for conll03detrain. This data was collected from an external github repository.\n"
                 f"Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
     elif f"conll03{language}{dataset}" == "conll03detest":
-        if "b8514f44366feae8f317e767cf425f28" != _get_md5checksum(str(directory / f"{dataset}.txt")):
+        if (
+            _get_md5checksum(str(directory / f"{dataset}.txt"))
+            != "b8514f44366feae8f317e767cf425f28"
+        ):
             logger.error(
                 f"Someone has changed the file for conll03detest. This data was collected from an external github repository.\n"
                 f"Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
     elif f"conll03{language}{dataset}" == "conll03entrain":
-        if "11a942ce9db6cc64270372825e964d26" != _get_md5checksum(str(directory / f"{dataset}.txt")):
+        if (
+            _get_md5checksum(str(directory / f"{dataset}.txt"))
+            != "11a942ce9db6cc64270372825e964d26"
+        ):
             logger.error(
                 f"Someone has changed the file for conll03entrain. This data was collected from an external github repository.\n"
                 f"Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py")
@@ -440,10 +453,9 @@ def read_docs_from_txt(filename, delimiter="", encoding="utf-8", max_docs=None, 
                     doc_count += 1
                     prev_doc = doc
                     doc = []
-                    if max_docs:
-                        if doc_count >= max_docs:
-                            logger.info(f"Reached number of max_docs ({max_docs}). Skipping rest of file ...")
-                            break
+                    if max_docs and doc_count >= max_docs:
+                        logger.info(f"Reached number of max_docs ({max_docs}). Skipping rest of file ...")
+                        break
                 else:
                     logger.warning(f"Found empty document in '{filename}' (line {line_num}). "
                                    f"Make sure that you comply with the format: "
@@ -453,15 +465,11 @@ def read_docs_from_txt(filename, delimiter="", encoding="utf-8", max_docs=None, 
                 doc.append(line)
 
         # if last row in file is not empty, we add the last parsed doc manually to all_docs
-        if len(doc) > 0:
-            if doc_count > 0:
-                if doc != prev_doc:
-                    yield {"doc": doc}
-                    doc_count += 1
-            else:
-                yield {"doc": doc}
-                doc_count += 1
-
+        if len(doc) > 0 and (
+            doc_count > 0 and doc != prev_doc or doc_count <= 0
+        ):
+            yield {"doc": doc}
+            doc_count += 1
         if doc_count < 2:
             raise ValueError(f"Found only {doc_count} docs in {filename}). You need at least 2! \n"
                            f"Make sure that you comply with the format: \n"
@@ -672,13 +680,13 @@ def grouper(iterable, n, worker_id=0, total_workers=1):
 
 
 def split_file(filepath, output_dir, docs_per_file=1_000, delimiter="", encoding="utf-8"):
-    total_lines = sum(1 for line in open(filepath, encoding=encoding))
+    total_lines = sum(1 for _ in open(filepath, encoding=encoding))
     output_file_number = 1
     doc_count = 0
     lines_to_write = []
     with ExitStack() as stack:
         input_file = stack.enter_context(open(filepath, 'r', encoding=encoding))
-        for line_num, line in enumerate(tqdm(input_file, desc="Splitting file ...", total=total_lines)):
+        for line in tqdm(input_file, desc="Splitting file ...", total=total_lines):
             lines_to_write.append(line)
             if line.strip() == delimiter:
                 doc_count += 1
@@ -711,9 +719,8 @@ def generate_tok_to_ch_map(text):
             if ch not in string.whitespace:
                 map.append(i)
                 follows_whitespace = False
-        else:
-            if ch in string.whitespace:
-                follows_whitespace = True
+        elif ch in string.whitespace:
+            follows_whitespace = True
     return map
 
 

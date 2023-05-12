@@ -27,11 +27,12 @@ PRETRAINED_CONFIG_ARCHIVE_MAP = {
     "glove-english-cased-840B": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-english-cased-840B/language_model_config.json",
 }
 # tokenization
-EMBEDDING_VOCAB_FILES_MAP = {}
-EMBEDDING_VOCAB_FILES_MAP["vocab_file"] = {
-    "glove-german-uncased": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-german-uncased/vocab.txt",
-    "glove-english-uncased-6B": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-english-uncased-6B/vocab.txt",
-    "glove-english-cased-840B": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-english-cased-840B/vocab.txt",
+EMBEDDING_VOCAB_FILES_MAP = {
+    "vocab_file": {
+        "glove-german-uncased": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-german-uncased/vocab.txt",
+        "glove-english-uncased-6B": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-english-uncased-6B/vocab.txt",
+        "glove-english-cased-840B": "https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-models/0.4.1/glove-english-cased-840B/vocab.txt",
+    }
 }
 MAX_MODEL_INPU_SIZES = {
     "glove-german-uncased": 10000,
@@ -223,8 +224,7 @@ def load_embedding_tokenizer(pretrained_model_name_or_path, **kwargs):
         BertTokenizer.pretrained_init_configuration. \
             update(
             {pretrained_model_name_or_path: PRETRAINED_INIT_CONFIGURATION.get(pretrained_model_name_or_path, None)})
-    ret = BertTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
-    return ret
+    return BertTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
 
 
 def load_model(pretrained_model_name_or_path, **kwargs):
@@ -252,8 +252,7 @@ def load_embedding_vectors(embedding_file, vocab):
     vectors = {}
 
     for line in tqdm(f, desc="Loading embeddings"):
-        line = line.strip()
-        if line:
+        if line := line.strip():
             word, vec = line.split(' ', 1)
             if (word not in words_transformed):  # omit repetitions = speed up + debug
                 try:
@@ -269,7 +268,7 @@ def load_embedding_vectors(embedding_file, vocab):
                         words_transformed.add(word)
                 except:
                     if logger is not None:
-                        logger.debug("Embeddings reader: Could not convert line: {}".format(line))
+                        logger.debug(f"Embeddings reader: Could not convert line: {line}")
             else:
                 repetitions += 1
 
@@ -412,9 +411,7 @@ def _is_punctuation(char):
     if (cp >= 33 and cp <= 47) or (cp >= 58 and cp <= 64) or (cp >= 91 and cp <= 96) or (cp >= 123 and cp <= 126):
         return True
     cat = unicodedata.category(char)
-    if cat.startswith("P"):
-        return True
-    return False
+    return bool(cat.startswith("P"))
 
 def s3e_pooling(token_embs, token_ids, token_weights, centroids, token_to_cluster, mask, svd_components=None):
     """
@@ -462,12 +459,9 @@ def s3e_pooling(token_embs, token_ids, token_weights, centroids, token_to_cluste
         for k, v in stage_vec[-2].items():
             cluster = token_to_cluster[k]
 
-            if cluster in stage_vec[-1]:
-                stage_vec[-1][cluster].append(stage_vec[-2][k] * token_weights[k])
-            else:
+            if cluster not in stage_vec[-1]:
                 stage_vec[-1][cluster] = []
-                stage_vec[-1][cluster].append(stage_vec[-2][k] * token_weights[k])
-
+            stage_vec[-1][cluster].append(stage_vec[-2][k] * token_weights[k])
         # VLAD for each cluster
         for k, v in stage_vec[-1].items():
             # Centroids
@@ -477,14 +471,11 @@ def s3e_pooling(token_embs, token_ids, token_weights, centroids, token_to_cluste
             v = [wv - centroid_vec for wv in v]
             stage_vec[-1][k] = np.sum(v, 0)
 
-        # Compute Sentence Embedding (weighted avg, dim = original embedding dim)
-        sentvec = []
         vec = np.zeros((emb_dim))
         for key, value in stage_vec[0].items():
             # print(token_weights[key])
             vec = vec + value * token_weights[key]
-        sentvec.append(vec / len(stage_vec[0].keys()))
-
+        sentvec = [vec / len(stage_vec[0].keys())]
         # Covariance Descriptor (dim = k*(k+1)/2, with k=n_clusters)
         matrix = np.zeros((n_clusters, emb_dim))
         for j in range(n_clusters):

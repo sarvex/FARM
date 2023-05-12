@@ -25,11 +25,7 @@ def test_ner_amp(caplog):
     batch_size = 2
     evaluate_every = 1
     lang_model = "bert-base-german-cased"
-    if AMP_AVAILABLE:
-        use_amp = 'O1'
-    else:
-        use_amp = None
-
+    use_amp = 'O1' if AMP_AVAILABLE else None
     tokenizer = Tokenizer.load(
         pretrained_model_name_or_path=lang_model, do_lower_case=False
     )

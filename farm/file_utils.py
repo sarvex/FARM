@@ -67,7 +67,7 @@ def url_to_filename(url, etag=None):
     if etag:
         etag_bytes = etag.encode("utf-8")
         etag_hash = sha256(etag_bytes)
-        filename += "." + etag_hash.hexdigest()
+        filename += f".{etag_hash.hexdigest()}"
 
     return filename
 
@@ -82,11 +82,11 @@ def filename_to_url(filename, cache_dir=None):
 
     cache_path = cache_dir / filename
     if not os.path.exists(cache_path):
-        raise EnvironmentError("file {} not found".format(cache_path))
+        raise EnvironmentError(f"file {cache_path} not found")
 
-    meta_path = cache_path + ".json"
+    meta_path = f"{cache_path}.json"
     if not os.path.exists(meta_path):
-        raise EnvironmentError("file {} not found".format(meta_path))
+        raise EnvironmentError(f"file {meta_path} not found")
 
     with open(meta_path, encoding="utf-8") as meta_file:
         metadata = json.load(meta_file)
@@ -157,7 +157,7 @@ def split_s3_path(url):
     """Split a full s3 path into the bucket name and path."""
     parsed = urlparse(url)
     if not parsed.netloc or not parsed.path:
-        raise ValueError("bad s3 path {}".format(url))
+        raise ValueError(f"bad s3 path {url}")
     bucket_name = parsed.netloc
     s3_path = parsed.path
     # Remove '/' at beginning of path.
@@ -277,23 +277,15 @@ def load_from_cache(pretrained_model_name_or_path, s3_dict, **kwargs):
 
     except EnvironmentError:
         if pretrained_model_name_or_path in s3_dict:
-            msg = "Couldn't reach server at '{}' to download data.".format(
-                s3_file
-            )
+            msg = f"Couldn't reach server at '{s3_file}' to download data."
         else:
-            msg = (
-                "Model name '{}' was not found in model name list. "
-                "We assumed '{}' was a path, a model identifier, or url to a configuration file or "
-                "a directory containing such a file but couldn't find any such file at this path or url.".format(
-                    pretrained_model_name_or_path, s3_file,
-                )
-            )
+            msg = f"Model name '{pretrained_model_name_or_path}' was not found in model name list. We assumed '{s3_file}' was a path, a model identifier, or url to a configuration file or a directory containing such a file but couldn't find any such file at this path or url."
         raise EnvironmentError(msg)
 
     if resolved_file == s3_file:
-        logger.info("loading file {}".format(s3_file))
+        logger.info(f"loading file {s3_file}")
     else:
-        logger.info("loading file {} from cache at {}".format(s3_file, resolved_file))
+        logger.info(f"loading file {s3_file} from cache at {resolved_file}")
 
     return resolved_file
 
@@ -317,21 +309,17 @@ def get_file_extension(path, dot=True, lower=True):
 
 
 def read_config(path):
-    if path:
-        with open(path) as json_data_file:
-            conf_args = json.load(json_data_file)
-    else:
+    if not path:
         raise ValueError("No config provided for classifier")
 
+    with open(path) as json_data_file:
+        conf_args = json.load(json_data_file)
     # flatten last part of config, take either value or default as value
     for gk, gv in conf_args.items():
         for k, v in gv.items():
             conf_args[gk][k] = v["value"] if (v["value"] is not None) else v["default"]
 
-    # DotMap for making nested dictionary accessible through dot notation
-    args = DotMap(conf_args, _dynamic=False)
-
-    return args
+    return DotMap(conf_args, _dynamic=False)
 
 
 def unnestConfig(config):
@@ -346,7 +334,7 @@ def unnestConfig(config):
     nestedVals = []
 
     for gk, gv in config.items():
-        if(gk != "task"):
+        if (gk != "task"):
             for k, v in gv.items():
                 if isinstance(v, list):
                     if (
@@ -355,14 +343,13 @@ def unnestConfig(config):
                         nestedKeys.append([gk, k])
                         nestedVals.append(v)
                 elif isinstance(v, dict):
-                    logger.warning("Config too deep! Working on %s" %(str(v)))
+                    logger.warning(f"Config too deep! Working on {str(v)}")
 
-    if len(nestedKeys) == 0:
+    if not nestedKeys:
         unnestedConfig = [config]
     else:
         logger.info(
-            "Nested config at parameters: %s"
-            % (", ".join(".".join(x) for x in nestedKeys))
+            f'Nested config at parameters: {", ".join(".".join(x) for x in nestedKeys)}'
         )
         unnestedConfig = []
         mesh = np.meshgrid(
@@ -382,7 +369,7 @@ def unnestConfig(config):
                 elif len(k) == 2:
                     tempconfig[k[0]][k[1]] = mesh[j][i]  # set nested dictionary keys
                 else:
-                    logger.warning("Config too deep! Working on %s" %(str(k)))
+                    logger.warning(f"Config too deep! Working on {str(k)}")
             unnestedConfig.append(tempconfig)
 
     return unnestedConfig

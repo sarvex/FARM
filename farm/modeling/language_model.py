@@ -143,7 +143,7 @@ class LanguageModel(nn.Module):
             language_model = cls.subclasses[config["name"]].load(pretrained_model_name_or_path)
         else:
             logger.info(f"Could not find {pretrained_model_name_or_path} locally.")
-            logger.info(f"Looking on Transformers Model Hub (in local cache and online)...")
+            logger.info("Looking on Transformers Model Hub (in local cache and online)...")
             if language_model_class is None:
                 language_model_class = cls.get_language_model_class(pretrained_model_name_or_path)
 
@@ -184,24 +184,16 @@ class LanguageModel(nn.Module):
 
         config = AutoConfig.from_pretrained(model_name_or_path, **kwargs)
         model_type = config.model_type
-        if model_type == "xlm-roberta":
-            language_model_class = "XLMRoberta"
-        elif model_type == "roberta":
-            if "mlm" in model_name_or_path.lower():
-                raise NotImplementedError("MLM part of codebert is currently not supported in FARM")
-            language_model_class = "Roberta"
-        elif model_type == "camembert":
-            language_model_class = "Camembert"
-        elif model_type == "albert":
+        if model_type == "albert":
             language_model_class = "Albert"
-        elif model_type == "distilbert":
-            language_model_class = "DistilBert"
         elif model_type == "bert":
             language_model_class = "Bert"
-        elif model_type == "xlnet":
-            language_model_class = "XLNet"
-        elif model_type == "electra":
-            language_model_class = "Electra"
+        elif model_type == "big_bird":
+            language_model_class = "BigBird"
+        elif model_type == "camembert":
+            language_model_class = "Camembert"
+        elif model_type == "distilbert":
+            language_model_class = "DistilBert"
         elif model_type == "dpr":
             if config.architectures[0] == "DPRQuestionEncoder":
                 language_model_class = "DPRQuestionEncoder"
@@ -209,8 +201,16 @@ class LanguageModel(nn.Module):
                 language_model_class = "DPRContextEncoder"
             elif config.archictectures[0] == "DPRReader":
                 raise NotImplementedError("DPRReader models are currently not supported.")
-        elif model_type == "big_bird":
-            language_model_class = "BigBird"
+        elif model_type == "electra":
+            language_model_class = "Electra"
+        elif model_type == "roberta":
+            if "mlm" in model_name_or_path.lower():
+                raise NotImplementedError("MLM part of codebert is currently not supported in FARM")
+            language_model_class = "Roberta"
+        elif model_type == "xlm-roberta":
+            language_model_class = "XLMRoberta"
+        elif model_type == "xlnet":
+            language_model_class = "XLNet"
         else:
             # Fall back to inferring type from model name
             logger.warning("Could not infer LanguageModel class from config. Trying to infer "
@@ -282,7 +282,10 @@ class LanguageModel(nn.Module):
             setattr(self.model.config, "language", self.language)
             # For DPR models, transformers overwrites the model_type with the one set in DPRConfig
             # Therefore, we copy the model_type from the model config to DPRConfig
-            if self.__class__.__name__ == "DPRQuestionEncoder" or self.__class__.__name__ == "DPRContextEncoder":
+            if self.__class__.__name__ in [
+                "DPRQuestionEncoder",
+                "DPRContextEncoder",
+            ]:
                 setattr(transformers.DPRConfig, "model_type", self.model.config.model_type)
             string = self.model.config.to_json_string()
             file.write(string)
@@ -309,10 +312,7 @@ class LanguageModel(nn.Module):
 
     @classmethod
     def _get_or_infer_language_from_name(cls, language, name):
-        if language is not None:
-            return language
-        else:
-            return cls._infer_language_from_name(name)
+        return cls._infer_language_from_name(name) if language is None else language
 
     @classmethod
     def _infer_language_from_name(cls, name):
@@ -337,7 +337,7 @@ class LanguageModel(nn.Module):
             logger.info(
                 f"Automatically detected language from language model name: {language}"
             )
-        elif len(matches) == 0:
+        elif not matches:
             language = "english"
         elif len(matches) > 1:
             language = matches[0]
@@ -399,9 +399,7 @@ class LanguageModel(nn.Module):
 
         preds = []
         for vec, sample in zip(vecs, samples):
-            pred = {}
-            pred["context"] = sample.clear_text["text"]
-            pred["vec"] = vec
+            pred = {"context": sample.clear_text["text"], "vec": vec}
             preds.append(pred)
         return preds
 
@@ -469,10 +467,7 @@ class Bert(LanguageModel):
         """
 
         bert = cls()
-        if "farm_lm_name" in kwargs:
-            bert.name = kwargs["farm_lm_name"]
-        else:
-            bert.name = pretrained_model_name_or_path
+        bert.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -555,10 +550,7 @@ class Albert(LanguageModel):
 
         """
         albert = cls()
-        if "farm_lm_name" in kwargs:
-            albert.name = kwargs["farm_lm_name"]
-        else:
-            albert.name = pretrained_model_name_or_path
+        albert.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -642,10 +634,7 @@ class Roberta(LanguageModel):
 
         """
         roberta = cls()
-        if "farm_lm_name" in kwargs:
-            roberta.name = kwargs["farm_lm_name"]
-        else:
-            roberta.name = pretrained_model_name_or_path
+        roberta.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -729,10 +718,7 @@ class XLMRoberta(LanguageModel):
 
         """
         xlm_roberta = cls()
-        if "farm_lm_name" in kwargs:
-            xlm_roberta.name = kwargs["farm_lm_name"]
-        else:
-            xlm_roberta.name = pretrained_model_name_or_path
+        xlm_roberta.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -822,10 +808,7 @@ class DistilBert(LanguageModel):
         """
 
         distilbert = cls()
-        if "farm_lm_name" in kwargs:
-            distilbert.name = kwargs["farm_lm_name"]
-        else:
-            distilbert.name = pretrained_model_name_or_path
+        distilbert.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -875,10 +858,10 @@ class DistilBert(LanguageModel):
         pooled_output = self.pooler(output_tuple[0])
         if self.model.config.output_hidden_states == True:
             sequence_output, all_hidden_states = output_tuple[0], output_tuple[1]
-            return sequence_output, pooled_output
         else:
             sequence_output = output_tuple[0]
-            return sequence_output, pooled_output
+
+        return sequence_output, pooled_output
 
     def enable_hidden_states_output(self):
         self.model.config.output_hidden_states = True
@@ -916,10 +899,7 @@ class XLNet(LanguageModel):
 
         """
         xlnet = cls()
-        if "farm_lm_name" in kwargs:
-            xlnet.name = kwargs["farm_lm_name"]
-        else:
-            xlnet.name = pretrained_model_name_or_path
+        xlnet.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -1017,8 +997,10 @@ class EmbeddingConfig():
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.language = language
-        if len(kwargs) > 0:
-            logger.info(f"Passed unused params {str(kwargs)} to the EmbeddingConfig. Might not be a problem.")
+        if kwargs:
+            logger.info(
+                f"Passed unused params {kwargs} to the EmbeddingConfig. Might not be a problem."
+            )
 
     def to_dict(self):
         """
@@ -1078,7 +1060,7 @@ class EmbeddingModel():
         embeddings = self.embeddings.cpu().numpy()
         with open(save_name, "w") as f:
             for w, vec in tqdm(zip(self.vocab, embeddings), desc="Saving embeddings", total=embeddings.shape[0]):
-                f.write(w + " " + " ".join(["%.6f" % v for v in vec]) + "\n")
+                f.write(f"{w} " + " ".join(["%.6f" % v for v in vec]) + "\n")
         f.close()
 
         # Save vocab
@@ -1093,10 +1075,8 @@ class EmbeddingModel():
         # function is called as a vocab length validation inside FARM
         # fast way of returning an object with num_embeddings attribute (needed for some checks)
         # TODO add functionality to add words/tokens to a wordembeddingmodel after initialization
-        temp = {}
-        temp["num_embeddings"] = len(self.vocab)
-        temp = DotMap(temp)
-        return temp
+        temp = {"num_embeddings": len(self.vocab)}
+        return DotMap(temp)
 
 
 
@@ -1131,10 +1111,9 @@ class WordEmbedding_LM(LanguageModel):
 
         """
         wordembedding_LM = cls()
-        if "farm_lm_name" in kwargs:
-            wordembedding_LM.name = kwargs["farm_lm_name"]
-        else:
-            wordembedding_LM.name = pretrained_model_name_or_path
+        wordembedding_LM.name = kwargs.get(
+            "farm_lm_name", pretrained_model_name_or_path
+        )
         # We need to differentiate between loading model from local or remote
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -1182,10 +1161,7 @@ class WordEmbedding_LM(LanguageModel):
         pooled_output = []
         # TODO do not use padding items in pooled output
         for sample in input_ids:
-            sample_embeddings = []
-            for index in sample:
-                #if index != self.model.unk_idx:
-                sample_embeddings.append(self.model.embeddings[index])
+            sample_embeddings = [self.model.embeddings[index] for index in sample]
             sample_embeddings = torch.stack(sample_embeddings)
             sequence_output.append(sample_embeddings)
             pooled_output.append(self.pooler(sample_embeddings))
@@ -1265,7 +1241,7 @@ class WordEmbedding_LM(LanguageModel):
             # Removing projections on top components
             PVN_dims = pca_n_top_components
             for emb_idx in tqdm(range(self.model.embeddings.shape[0]), desc="Removing projections"):
-                for pca_idx, u in enumerate(U1[0:PVN_dims]):
+                for pca_idx, u in enumerate(U1[:PVN_dims]):
                     ratio = (explained_variance[pca_idx] - explained_variance[PVN_dims]) / explained_variance[pca_idx]
                     self.model.embeddings[emb_idx] = self.model.embeddings[emb_idx] - ratio * np.dot(u.transpose(), self.model.embeddings[emb_idx]) * u
 
@@ -1307,10 +1283,7 @@ class Electra(LanguageModel):
         """
 
         electra = cls()
-        if "farm_lm_name" in kwargs:
-            electra.name = kwargs["farm_lm_name"]
-        else:
-            electra.name = pretrained_model_name_or_path
+        electra.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -1366,10 +1339,10 @@ class Electra(LanguageModel):
 
         if self.model.config.output_hidden_states == True:
             sequence_output, all_hidden_states = output_tuple[0], output_tuple[1]
-            return sequence_output, pooled_output
         else:
             sequence_output = output_tuple[0]
-            return sequence_output, pooled_output
+
+        return sequence_output, pooled_output
 
     def enable_hidden_states_output(self):
         self.model.config.output_hidden_states = True
@@ -1404,10 +1377,7 @@ class Camembert(Roberta):
 
         """
         camembert = cls()
-        if "farm_lm_name" in kwargs:
-            camembert.name = kwargs["farm_lm_name"]
-        else:
-            camembert.name = pretrained_model_name_or_path
+        camembert.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -1447,11 +1417,9 @@ class DPRQuestionEncoder(LanguageModel):
         """
 
         dpr_question_encoder = cls()
-        if "farm_lm_name" in kwargs:
-            dpr_question_encoder.name = kwargs["farm_lm_name"]
-        else:
-            dpr_question_encoder.name = pretrained_model_name_or_path
-
+        dpr_question_encoder.name = kwargs.get(
+            "farm_lm_name", pretrained_model_name_or_path
+        )
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
@@ -1466,8 +1434,7 @@ class DPRQuestionEncoder(LanguageModel):
                 if original_model_config.model_type != "bert":
                     logger.warning(f"Using a model of type '{original_model_config.model_type}' which might be incompatible with DPR encoders."
                                    f"Bert based encoders are supported that need input_ids,token_type_ids,attention_mask as input tensors.")
-                original_config_dict = vars(original_model_config)
-                original_config_dict.update(kwargs)
+                original_config_dict = vars(original_model_config) | kwargs
                 dpr_question_encoder.model = transformers.DPRQuestionEncoder(config=transformers.DPRConfig(**original_config_dict))
                 language_model_class = cls.get_language_model_class(farm_lm_config)
                 dpr_question_encoder.model.base_model.bert_model = cls.subclasses[language_model_class].load(str(pretrained_model_name_or_path)).model
@@ -1485,8 +1452,7 @@ class DPRQuestionEncoder(LanguageModel):
                 if original_model_config.model_type != "bert":
                     logger.warning(f"Using a model of type '{original_model_config.model_type}' which might be incompatible with DPR encoders."
                                    f"Bert based encoders are supported that need input_ids,token_type_ids,attention_mask as input tensors.")
-                original_config_dict = vars(original_model_config)
-                original_config_dict.update(kwargs)
+                original_config_dict = vars(original_model_config) | kwargs
                 dpr_question_encoder.model = transformers.DPRQuestionEncoder(config=transformers.DPRConfig(**original_config_dict))
                 dpr_question_encoder.model.base_model.bert_model = AutoModel.from_pretrained(
                     str(pretrained_model_name_or_path), **original_config_dict)
@@ -1548,12 +1514,10 @@ class DPRQuestionEncoder(LanguageModel):
             attention_mask=query_attention_mask,
             return_dict=True
         )
-        if self.model.question_encoder.config.output_hidden_states == True:
-            pooled_output, all_hidden_states = output_tuple.pooler_output, output_tuple.hidden_states
-            return pooled_output, all_hidden_states
-        else:
-            pooled_output = output_tuple.pooler_output
-            return pooled_output, None
+        if self.model.question_encoder.config.output_hidden_states != True:
+            return output_tuple.pooler_output, None
+        pooled_output, all_hidden_states = output_tuple.pooler_output, output_tuple.hidden_states
+        return pooled_output, all_hidden_states
 
     def enable_hidden_states_output(self):
         self.model.question_encoder.config.output_hidden_states = True
@@ -1586,10 +1550,9 @@ class DPRContextEncoder(LanguageModel):
         """
 
         dpr_context_encoder = cls()
-        if "farm_lm_name" in kwargs:
-            dpr_context_encoder.name = kwargs["farm_lm_name"]
-        else:
-            dpr_context_encoder.name = pretrained_model_name_or_path
+        dpr_context_encoder.name = kwargs.get(
+            "farm_lm_name", pretrained_model_name_or_path
+        )
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
 
@@ -1606,8 +1569,7 @@ class DPRContextEncoder(LanguageModel):
                     logger.warning(
                         f"Using a model of type '{original_model_config.model_type}' which might be incompatible with DPR encoders."
                         f"Bert based encoders are supported that need input_ids,token_type_ids,attention_mask as input tensors.")
-                original_config_dict = vars(original_model_config)
-                original_config_dict.update(kwargs)
+                original_config_dict = vars(original_model_config) | kwargs
                 dpr_context_encoder.model = transformers.DPRContextEncoder(config=transformers.DPRConfig(**original_config_dict))
                 language_model_class = cls.get_language_model_class(farm_lm_config)
                 dpr_context_encoder.model.base_model.bert_model = cls.subclasses[language_model_class].load(
@@ -1629,8 +1591,7 @@ class DPRContextEncoder(LanguageModel):
                     logger.warning(
                         f"Using a model of type '{original_model_config.model_type}' which might be incompatible with DPR encoders."
                         f"Bert based encoders are supported that need input_ids,token_type_ids,attention_mask as input tensors.")
-                original_config_dict = vars(original_model_config)
-                original_config_dict.update(kwargs)
+                original_config_dict = vars(original_model_config) | kwargs
                 dpr_context_encoder.model = transformers.DPRContextEncoder(
                     config=transformers.DPRConfig(**original_config_dict))
                 dpr_context_encoder.model.base_model.bert_model = AutoModel.from_pretrained(
@@ -1696,12 +1657,10 @@ class DPRContextEncoder(LanguageModel):
             attention_mask=passage_attention_mask,
             return_dict=True
         )
-        if self.model.ctx_encoder.config.output_hidden_states == True:
-            pooled_output, all_hidden_states = output_tuple.pooler_output, output_tuple.hidden_states
-            return pooled_output, all_hidden_states
-        else:
-            pooled_output = output_tuple.pooler_output
-            return pooled_output, None
+        if self.model.ctx_encoder.config.output_hidden_states != True:
+            return output_tuple.pooler_output, None
+        pooled_output, all_hidden_states = output_tuple.pooler_output, output_tuple.hidden_states
+        return pooled_output, all_hidden_states
 
     def enable_hidden_states_output(self):
         self.model.ctx_encoder.config.output_hidden_states = True
@@ -1747,10 +1706,7 @@ class BigBird(LanguageModel):
         """
 
         big_bird = cls()
-        if "farm_lm_name" in kwargs:
-            big_bird.name = kwargs["farm_lm_name"]
-        else:
-            big_bird.name = pretrained_model_name_or_path
+        big_bird.name = kwargs.get("farm_lm_name", pretrained_model_name_or_path)
         # We need to differentiate between loading model using FARM format and Pytorch-Transformers format
         farm_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
         if os.path.exists(farm_lm_config):
